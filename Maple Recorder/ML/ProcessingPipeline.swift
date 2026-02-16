@@ -8,6 +8,7 @@ enum ProcessingState: Sendable {
     case converting
     case transcribing
     case merging
+    case summarizing
     case complete
     case failed(String)
 }
@@ -20,8 +21,9 @@ final class ProcessingPipeline {
     func process(
         audioURL: URL,
         transcriptionManager: TranscriptionManager,
-        diarizationManager: DiarizationManager
-    ) async throws -> (segments: [TranscriptSegment], speakers: [Speaker]) {
+        diarizationManager: DiarizationManager,
+        summarizationProvider: LLMProvider = .none
+    ) async throws -> (segments: [TranscriptSegment], speakers: [Speaker], summary: String) {
         do {
             state = .converting
             progress = "Converting audio…"
@@ -42,9 +44,21 @@ final class ProcessingPipeline {
             let diaSegments = mapDiarizationResult(dia)
             let merged = TranscriptMerger.merge(asrSegments: asrSegments, diarizationSegments: diaSegments)
 
+            // Summarize if provider is configured
+            var summary = ""
+            if summarizationProvider != .none {
+                state = .summarizing
+                progress = "Generating summary…"
+                summary = (try? await Summarizer.summarize(
+                    transcript: merged.segments,
+                    speakers: merged.speakers,
+                    provider: summarizationProvider
+                )) ?? ""
+            }
+
             state = .complete
             progress = ""
-            return merged
+            return (segments: merged.segments, speakers: merged.speakers, summary: summary)
         } catch {
             state = .failed(error.localizedDescription)
             progress = ""

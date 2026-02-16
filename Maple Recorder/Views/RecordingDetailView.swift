@@ -9,6 +9,10 @@ struct RecordingDetailView: View {
 
     #if !os(watchOS)
     var processingPipeline: ProcessingPipeline?
+    var settingsManager: SettingsManager?
+    var promptStore: PromptStore?
+    @State private var showingPromptPicker = false
+    @State private var isRunningPrompt = false
     #endif
 
     private var recording: MapleRecording? {
@@ -80,6 +84,21 @@ struct RecordingDetailView: View {
                         emptyTranscriptPlaceholder
                         #endif
                     }
+
+                    #if !os(watchOS)
+                    // Prompt Results
+                    PromptResultsView(
+                        results: recording.promptResults,
+                        onDelete: { result in
+                            deletePromptResult(result, from: &recording)
+                        }
+                    )
+
+                    // Run Prompt button
+                    if !recording.transcript.isEmpty, promptStore != nil, settingsManager != nil {
+                        runPromptButton
+                    }
+                    #endif
                 }
                 .padding()
             }
@@ -98,6 +117,20 @@ struct RecordingDetailView: View {
                     try? store.update(updated)
                 }
             )
+            #if !os(watchOS)
+            .sheet(isPresented: $showingPromptPicker) {
+                if let promptStore, let settingsManager {
+                    PromptPickerView(
+                        prompts: promptStore.prompts,
+                        provider: settingsManager.preferredProvider
+                    ) { prompt, context in
+                        Task {
+                            await runPrompt(prompt, context: context, on: recording)
+                        }
+                    }
+                }
+            }
+            #endif
         } else {
             ContentUnavailableView(
                 "Recording Not Found",
@@ -128,6 +161,59 @@ struct RecordingDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 20)
+    }
+
+    @ViewBuilder
+    private var runPromptButton: some View {
+        Button {
+            showingPromptPicker = true
+        } label: {
+            HStack {
+                if isRunningPrompt {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Running prompt…")
+                } else {
+                    Image(systemName: "sparkles")
+                    Text("Run Custom Prompt…")
+                }
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                isRunningPrompt ? MapleTheme.textSecondary : MapleTheme.primary,
+                in: .capsule
+            )
+        }
+        .disabled(isRunningPrompt)
+    }
+
+    private func runPrompt(_ prompt: CustomPrompt, context: String?, on recording: MapleRecording) async {
+        guard let settingsManager else { return }
+        isRunningPrompt = true
+        defer { isRunningPrompt = false }
+
+        do {
+            let result = try await PromptRunner.execute(
+                prompt: prompt,
+                additionalContext: context,
+                transcript: recording.transcript,
+                speakers: recording.speakers,
+                provider: settingsManager.preferredProvider
+            )
+            var updated = recording
+            updated.promptResults.append(result)
+            try store.update(updated)
+        } catch {
+            print("Prompt execution failed: \(error)")
+        }
+    }
+
+    private func deletePromptResult(_ result: PromptResult, from recording: inout MapleRecording) {
+        recording.promptResults.removeAll { $0.id == result.id }
+        try? store.update(recording)
     }
     #endif
 

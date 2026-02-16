@@ -4,6 +4,8 @@ struct RecordingListView: View {
     @Bindable var store: RecordingStore
     #if !os(watchOS)
     var modelManager: ModelManager
+    @Bindable var settingsManager: SettingsManager
+    @Bindable var promptStore: PromptStore
     #endif
     @State private var recorder = AudioRecorder()
     @State private var recordingURL: URL?
@@ -11,6 +13,7 @@ struct RecordingListView: View {
     #if !os(watchOS)
     @State private var activePipeline: ProcessingPipeline?
     @State private var processingRecordingId: UUID?
+    @State private var showingSettings = false
     #endif
 
     var body: some View {
@@ -24,6 +27,20 @@ struct RecordingListView: View {
                 }
             }
             .navigationTitle("Recordings")
+            #if !os(watchOS)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gear")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView(settingsManager: settingsManager, promptStore: promptStore)
+            }
+            #endif
             .overlay {
                 if store.recordings.isEmpty && !recorder.isRecording {
                     ContentUnavailableView(
@@ -48,7 +65,9 @@ struct RecordingListView: View {
                 RecordingDetailView(
                     store: store,
                     recordingId: selectedRecordingId,
-                    processingPipeline: processingRecordingId == selectedRecordingId ? activePipeline : nil
+                    processingPipeline: processingRecordingId == selectedRecordingId ? activePipeline : nil,
+                    settingsManager: settingsManager,
+                    promptStore: promptStore
                 )
                 #else
                 RecordingDetailView(
@@ -199,7 +218,8 @@ struct RecordingListView: View {
                 recording,
                 pipeline: pipeline,
                 transcription: modelManager.transcriptionManager,
-                diarization: modelManager.diarizationManager
+                diarization: modelManager.diarizationManager,
+                summarizationProvider: settingsManager.preferredProvider
             )
         } catch {
             print("Processing failed: \(error)")
