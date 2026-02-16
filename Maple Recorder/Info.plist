@@ -5,6 +5,9 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>audio</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Maple Recorder needs microphone access to record audio.</string>
 </dict>
 </plist>

@@ -12,5 +12,9 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>$(TeamIdentifierPrefix)com.just.maple.Maple-Recorder</string>
+	</array>
 </dict>
 </plist>
