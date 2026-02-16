@@ -1,0 +1,64 @@
+import SwiftUI
+
+struct TranscriptView: View {
+    let transcript: [TranscriptSegment]
+    let speakers: [Speaker]
+    @Bindable var syncEngine: PlaybackSyncEngine
+    var onSeekToWord: ((WordTiming) -> Void)?
+    var onRenameSpeaker: ((Speaker) -> Void)?
+
+    @State private var isUserScrolling = false
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(transcript) { segment in
+                    TranscriptRowView(
+                        segment: segment,
+                        speaker: speakerFor(segment),
+                        isActive: syncEngine.activeSegmentId == segment.id,
+                        activeWordId: syncEngine.activeSegmentId == segment.id ? syncEngine.activeWordId : nil,
+                        onTapWord: { word in
+                            onSeekToWord?(word)
+                        },
+                        onTapSpeaker: {
+                            if let speaker = speakerFor(segment) {
+                                onRenameSpeaker?(speaker)
+                            }
+                        }
+                    )
+                    .id(segment.id)
+                }
+            }
+            .onChange(of: syncEngine.activeSegmentId) { _, newId in
+                if syncEngine.shouldAutoScroll, let id = newId {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+        }
+
+        // "Scroll to now" button
+        if !syncEngine.shouldAutoScroll, syncEngine.activeSegmentId != nil {
+            Button {
+                syncEngine.shouldAutoScroll = true
+            } label: {
+                Label("Scroll to now", systemImage: "arrow.down.circle.fill")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(MapleTheme.surface, in: .capsule)
+                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 4)
+        }
+    }
+
+    private func speakerFor(_ segment: TranscriptSegment) -> Speaker? {
+        speakers.first { $0.id == segment.speakerId }
+    }
+}

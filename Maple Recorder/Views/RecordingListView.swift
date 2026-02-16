@@ -2,15 +2,25 @@ import SwiftUI
 
 struct RecordingListView: View {
     @Bindable var store: RecordingStore
+    #if !os(watchOS)
+    var modelManager: ModelManager
+    #endif
     @State private var recorder = AudioRecorder()
     @State private var recordingURL: URL?
-    @State private var selectedRecording: MapleRecording?
+    @State private var selectedRecordingId: UUID?
+    #if !os(watchOS)
+    @State private var activePipeline: ProcessingPipeline?
+    @State private var processingRecordingId: UUID?
+    #endif
 
     var body: some View {
         NavigationSplitView {
-            List(store.recordings, selection: $selectedRecording) { recording in
-                NavigationLink(value: recording) {
-                    RecordingRow(recording: recording)
+            List(store.recordings, selection: $selectedRecordingId) { recording in
+                NavigationLink(value: recording.id) {
+                    RecordingRow(
+                        recording: recording,
+                        isProcessing: isProcessing(recording)
+                    )
                 }
             }
             .navigationTitle("Recordings")
@@ -24,12 +34,28 @@ struct RecordingListView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                recordButton
-                    .padding()
+                VStack(spacing: 8) {
+                    #if !os(watchOS)
+                    modelStatusBanner
+                    #endif
+                    recordButton
+                }
+                .padding()
             }
         } detail: {
-            if let selectedRecording {
-                RecordingDetailView(recording: selectedRecording)
+            if let selectedRecordingId {
+                #if !os(watchOS)
+                RecordingDetailView(
+                    store: store,
+                    recordingId: selectedRecordingId,
+                    processingPipeline: processingRecordingId == selectedRecordingId ? activePipeline : nil
+                )
+                #else
+                RecordingDetailView(
+                    store: store,
+                    recordingId: selectedRecordingId
+                )
+                #endif
             } else {
                 ContentUnavailableView(
                     "Select a Recording",
@@ -41,12 +67,47 @@ struct RecordingListView: View {
         .tint(MapleTheme.primary)
     }
 
+    // MARK: - Model Status
+
+    #if !os(watchOS)
+    @ViewBuilder
+    private var modelStatusBanner: some View {
+        if modelManager.isDownloading {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Downloading models…")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 8))
+        } else if let error = modelManager.error {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(MapleTheme.error)
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 8))
+        }
+    }
+    #endif
+
     // MARK: - Record Button
 
     @ViewBuilder
     private var recordButton: some View {
         if recorder.isRecording {
             VStack(spacing: 8) {
+                WaveformView(samples: recorder.amplitudeSamples)
+                    .frame(height: 60)
+
                 Text(formatTime(recorder.elapsedTime))
                     .font(.system(.title3, design: .monospaced))
                     .foregroundStyle(MapleTheme.textPrimary)
@@ -112,11 +173,50 @@ struct RecordingListView: View {
 
         do {
             try store.save(recording)
-            selectedRecording = recording
+            selectedRecordingId = recording.id
         } catch {
             print("Failed to save recording: \(error)")
         }
+
+        #if !os(watchOS)
+        // Kick off processing pipeline
+        if modelManager.isReady {
+            Task {
+                await processRecording(recording)
+            }
+        }
+        #endif
     }
+
+    #if !os(watchOS)
+    private func processRecording(_ recording: MapleRecording) async {
+        let pipeline = modelManager.createPipeline()
+        activePipeline = pipeline
+        processingRecordingId = recording.id
+
+        do {
+            try await store.processRecording(
+                recording,
+                pipeline: pipeline,
+                transcription: modelManager.transcriptionManager,
+                diarization: modelManager.diarizationManager
+            )
+        } catch {
+            print("Processing failed: \(error)")
+        }
+
+        activePipeline = nil
+        processingRecordingId = nil
+    }
+
+    private func isProcessing(_ recording: MapleRecording) -> Bool {
+        processingRecordingId == recording.id
+    }
+    #else
+    private func isProcessing(_ recording: MapleRecording) -> Bool {
+        false
+    }
+    #endif
 
     // MARK: - Helpers
 
@@ -131,12 +231,20 @@ struct RecordingListView: View {
 
 private struct RecordingRow: View {
     let recording: MapleRecording
+    let isProcessing: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(recording.title)
-                .font(.headline)
-                .foregroundStyle(MapleTheme.textPrimary)
+            HStack {
+                Text(recording.title)
+                    .font(.headline)
+                    .foregroundStyle(MapleTheme.textPrimary)
+
+                if isProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
 
             HStack {
                 Text(formatDuration(recording.duration))

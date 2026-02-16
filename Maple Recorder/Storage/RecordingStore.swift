@@ -83,4 +83,26 @@ final class RecordingStore {
         updated.modifiedAt = Date()
         try save(updated)
     }
+
+    #if !os(watchOS)
+    func processRecording(
+        _ recording: MapleRecording,
+        pipeline: ProcessingPipeline,
+        transcription: TranscriptionManager,
+        diarization: DiarizationManager
+    ) async throws {
+        let audioFile = recording.audioFiles.first ?? ""
+        let audioURL = recordingsURL.appendingPathComponent(audioFile)
+        let result = try await pipeline.process(
+            audioURL: audioURL,
+            transcriptionManager: transcription,
+            diarizationManager: diarization
+        )
+        var updated = recording
+        updated.transcript = result.segments
+        updated.speakers = result.speakers
+        updated.modifiedAt = Date()
+        try save(updated)
+    }
+    #endif
 }

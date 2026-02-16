@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E3FA00012F43000100000003 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = E3FA00012F43000100000002 /* FluidAudio */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		E32263262F42B4FB004E27E2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E3FA00012F43000100000003 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +130,7 @@
 			);
 			name = "Maple Recorder";
 			packageProductDependencies = (
+				E3FA00012F43000100000002 /* FluidAudio */,
 			);
 			productName = "Maple Recorder";
 			productReference = E32263142F42B4F9004E27E2 /* Maple Recorder.app */;
@@ -208,6 +214,9 @@
 			);
 			mainGroup = E322630B2F42B4F9004E27E2;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E3FA00012F43000100000001 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E32263152F42B4F9004E27E2 /* Products */;
 			projectDirPath = "";
@@ -630,6 +639,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E3FA00012F43000100000001 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E3FA00012F43000100000002 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3FA00012F43000100000001 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E322630C2F42B4F9004E27E2 /* Project object */;
 }

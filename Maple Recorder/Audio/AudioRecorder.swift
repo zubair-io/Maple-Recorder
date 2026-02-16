@@ -7,6 +7,7 @@ final class AudioRecorder {
     var isRecording = false
     var elapsedTime: TimeInterval = 0
     var audioLevel: Float = 0
+    var amplitudeSamples: [Float] = []
 
     private var audioEngine: AVAudioEngine?
     private var outputFile: AVAudioFile?
@@ -57,6 +58,7 @@ final class AudioRecorder {
             let rms = sqrt(sum / Float(max(frameCount, 1)))
             Task { @MainActor [weak self] in
                 self?.audioLevel = rms
+                self?.amplitudeSamples.append(min(rms * 3, 1.0))
             }
         }
 
@@ -88,6 +90,7 @@ final class AudioRecorder {
         outputFile = nil
         isRecording = false
         audioLevel = 0
+        amplitudeSamples = []
 
         return outputURL
     }
