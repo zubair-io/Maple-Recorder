@@ -11,6 +11,9 @@ struct Maple_RecorderApp: App {
     #if os(iOS)
     @State private var phoneTransferHandler = PhoneTransferHandler()
     #endif
+    #if os(macOS)
+    @State private var quickRecordController = QuickRecordController()
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -35,7 +38,24 @@ struct Maple_RecorderApp: App {
                 )
             }
             #endif
+            #if os(macOS)
+            .onAppear {
+                quickRecordController.store = store
+                quickRecordController.modelManager = modelManager
+                quickRecordController.settingsManager = settingsManager
+            }
+            #endif
             #endif
         }
+        #if os(macOS)
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("Quick Record") {
+                    quickRecordController.toggle()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            }
+        }
+        #endif
     }
 }
