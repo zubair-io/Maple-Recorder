@@ -92,10 +92,9 @@ final class RecordingStore {
         diarization: DiarizationManager,
         summarizationProvider: LLMProvider = .none
     ) async throws {
-        let audioFile = recording.audioFiles.first ?? ""
-        let audioURL = recordingsURL.appendingPathComponent(audioFile)
+        let audioURLs = recording.audioFiles.map { recordingsURL.appendingPathComponent($0) }
         let result = try await pipeline.process(
-            audioURL: audioURL,
+            audioURLs: audioURLs,
             transcriptionManager: transcription,
             diarizationManager: diarization,
             summarizationProvider: summarizationProvider

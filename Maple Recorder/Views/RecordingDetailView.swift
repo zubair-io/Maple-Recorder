@@ -37,8 +37,8 @@ struct RecordingDetailView: View {
                     .foregroundStyle(MapleTheme.textSecondary)
 
                     // Playback controls
-                    if let audioFile = recording.audioFiles.first {
-                        playbackSection(audioFile: audioFile, transcript: recording.transcript)
+                    if !recording.audioFiles.isEmpty {
+                        playbackSection(audioFiles: recording.audioFiles, transcript: recording.transcript)
                     }
 
                     Divider()
@@ -220,7 +220,7 @@ struct RecordingDetailView: View {
     // MARK: - Playback
 
     @ViewBuilder
-    private func playbackSection(audioFile: String, transcript: [TranscriptSegment]) -> some View {
+    private func playbackSection(audioFiles: [String], transcript: [TranscriptSegment]) -> some View {
         VStack(spacing: 12) {
             // Progress bar
             if player.duration > 0 {
@@ -267,8 +267,12 @@ struct RecordingDetailView: View {
         .padding()
         .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 12))
         .onAppear {
-            let url = StorageLocation.recordingsURL.appendingPathComponent(audioFile)
-            try? player.load(url: url)
+            let urls = audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+            if urls.count == 1 {
+                try? player.load(url: urls[0])
+            } else {
+                try? player.loadChunks(urls: urls)
+            }
         }
     }
 

@@ -169,7 +169,8 @@ struct RecordingListView: View {
     }
 
     private func stopRecording() {
-        guard let url = recorder.stopRecording() else { return }
+        let urls = recorder.stopRecording()
+        guard !urls.isEmpty else { return }
 
         let now = Date()
         let formatter = DateFormatter()
@@ -177,15 +178,18 @@ struct RecordingListView: View {
         formatter.timeStyle = .short
         let title = "Recording \(formatter.string(from: now))"
 
-        let audioFileName = url.lastPathComponent
-
-        // Copy audio file to recordings directory
-        let destURL = StorageLocation.recordingsURL.appendingPathComponent(audioFileName)
-        try? FileManager.default.copyItem(at: url, to: destURL)
+        // Copy all chunk files to recordings directory
+        var audioFileNames: [String] = []
+        for url in urls {
+            let fileName = url.lastPathComponent
+            let destURL = StorageLocation.recordingsURL.appendingPathComponent(fileName)
+            try? FileManager.default.copyItem(at: url, to: destURL)
+            audioFileNames.append(fileName)
+        }
 
         let recording = MapleRecording(
             title: title,
-            audioFiles: [audioFileName],
+            audioFiles: audioFileNames,
             createdAt: now,
             modifiedAt: now
         )

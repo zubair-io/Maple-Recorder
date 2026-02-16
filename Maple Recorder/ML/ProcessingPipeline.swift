@@ -19,7 +19,7 @@ final class ProcessingPipeline {
     var progress: String = ""
 
     func process(
-        audioURL: URL,
+        audioURLs: [URL],
         transcriptionManager: TranscriptionManager,
         diarizationManager: DiarizationManager,
         summarizationProvider: LLMProvider = .none
@@ -27,7 +27,12 @@ final class ProcessingPipeline {
         do {
             state = .converting
             progress = "Converting audio…"
-            let samples = try MapleAudioConverter.loadAndResample(url: audioURL)
+            let samples: [Float]
+            if audioURLs.count == 1 {
+                samples = try MapleAudioConverter.loadAndResample(url: audioURLs[0])
+            } else {
+                samples = try MapleAudioConverter.loadAndResampleChunks(urls: audioURLs)
+            }
 
             state = .transcribing
             progress = "Transcribing…"
