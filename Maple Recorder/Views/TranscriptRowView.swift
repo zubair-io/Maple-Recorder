@@ -36,12 +36,11 @@ struct TranscriptRowView: View {
             .padding(.trailing, 10)
 
             // Word-level text with flow layout
-            FlowLayout(spacing: 2) {
+            FlowLayout(spacing: 0) {
                 ForEach(segment.words) { word in
-                    Text(word.word)
+                    Text(word.word + " ")
                         .font(.body)
                         .foregroundStyle(MapleTheme.textPrimary)
-                        .padding(.horizontal, 2)
                         .padding(.vertical, 1)
                         .background(
                             word.id == activeWordId

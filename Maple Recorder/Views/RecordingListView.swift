@@ -143,15 +143,26 @@ struct RecordingListView: View {
                 }
             }
         } else {
-            Button {
-                startRecording()
-            } label: {
-                Label("Record", systemImage: "mic.fill")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(MapleTheme.primary, in: .capsule)
+            VStack(spacing: 8) {
+                #if os(macOS)
+                Toggle(isOn: $recorder.includeSystemAudio) {
+                    Label("Include system audio", systemImage: "speaker.wave.2")
+                        .font(.subheadline)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+                .toggleStyle(.checkbox)
+                #endif
+
+                Button {
+                    startRecording()
+                } label: {
+                    Label("Record", systemImage: "mic.fill")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(MapleTheme.primary, in: .capsule)
+                }
             }
         }
     }

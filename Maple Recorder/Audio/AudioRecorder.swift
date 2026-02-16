@@ -9,6 +9,12 @@ final class AudioRecorder {
     var audioLevel: Float = 0
     var amplitudeSamples: [Float] = []
 
+    #if os(macOS)
+    var includeSystemAudio = false
+    private var systemCapture = SystemAudioCapture()
+    private var mixer = AudioMixer()
+    #endif
+
     private var audioEngine: AVAudioEngine?
     private var outputFile: AVAudioFile?
     private var timer: Timer?
@@ -54,25 +60,15 @@ final class AudioRecorder {
 
         let url = try createChunkFile()
 
+        #if os(macOS)
+        if includeSystemAudio {
+            try await startSystemAudioCapture()
+        }
+        #endif
+
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self else { return }
-            try? self.outputFile?.write(from: buffer)
-
-            // Calculate RMS for audio level
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameCount = Int(buffer.frameLength)
-            var sum: Float = 0
-            for i in 0..<frameCount {
-                sum += channelData[i] * channelData[i]
-            }
-            let rms = sqrt(sum / Float(max(frameCount, 1)))
-
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.audioLevel = rms
-                self.amplitudeSamples.append(min(rms * 3, 1.0))
-                self.checkChunkBoundary(rms: rms)
-            }
+            self.writeBuffer(buffer)
         }
 
         try engine.start()
@@ -106,8 +102,55 @@ final class AudioRecorder {
         isSplitSeeking = false
         silenceStartTime = nil
 
+        #if os(macOS)
+        Task {
+            await systemCapture.stopCapture()
+        }
+        #endif
+
         return chunkURLs
     }
+
+    // MARK: - Buffer Writing
+
+    private func writeBuffer(_ buffer: AVAudioPCMBuffer) {
+        try? self.outputFile?.write(from: buffer)
+
+        // Calculate RMS for audio level
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let frameCount = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<frameCount {
+            sum += channelData[i] * channelData[i]
+        }
+        let rms = sqrt(sum / Float(max(frameCount, 1)))
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.audioLevel = rms
+            self.amplitudeSamples.append(min(rms * 3, 1.0))
+            self.checkChunkBoundary(rms: rms)
+        }
+    }
+
+    // MARK: - macOS System Audio
+
+    #if os(macOS)
+    private func startSystemAudioCapture() async throws {
+        await systemCapture.checkPermission()
+        guard systemCapture.permissionGranted else {
+            throw SystemAudioCaptureError.permissionDenied
+        }
+
+        // System audio buffers get written to the file too
+        systemCapture.onAudioBuffer = { [weak self] buffer in
+            guard let self else { return }
+            try? self.outputFile?.write(from: buffer)
+        }
+
+        try await systemCapture.startCapture()
+    }
+    #endif
 
     // MARK: - Chunking
 
@@ -162,7 +205,6 @@ final class AudioRecorder {
         }
 
         let tempDir = FileManager.default.temporaryDirectory
-        let suffix = chunkURLs.isEmpty ? "" : "_part\(chunkURLs.count + 1)"
         let baseName = recordingId.uuidString
         let fileName: String
         if chunkURLs.isEmpty {

@@ -93,7 +93,8 @@ final class ProcessingPipeline {
                 || trimmed.hasSuffix("!")
 
             if isSentenceEnd && !currentTokens.isEmpty {
-                let text = currentTokens.map(\.token).joined(separator: " ")
+                let text = currentTokens.map(\.token).joined()
+                    .replacingOccurrences(of: "  ", with: " ")
                     .trimmingCharacters(in: .whitespaces)
                 let start = currentTokens.first!.startTime
                 let end = currentTokens.last!.endTime

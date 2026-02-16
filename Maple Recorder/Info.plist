@@ -9,5 +9,17 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Maple Recorder needs microphone access to record audio.</string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.just.maple.Maple-Recorder</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+			<key>NSUbiquitousContainerName</key>
+			<string>Maple Recorder</string>
+		</dict>
+	</dict>
 </dict>
 </plist>
