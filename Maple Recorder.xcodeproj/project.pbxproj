@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E339E3BC2F43AEFC00E4CCE5 /* Maple Recorder Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E339E39C2F43AEFB00E4CCE5 /* Maple Recorder Watch App.app */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E339E3BC2F43AEFC00E4CCE5 /* Maple Recorder Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E339E39C2F43AEFB00E4CCE5 /* Maple Recorder Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E3FA00012F43000100000003 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = E3FA00012F43000100000002 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
@@ -80,6 +80,15 @@
 			);
 			target = E32263132F42B4F9004E27E2 /* Maple Recorder */;
 		};
+		E3F0A1002F50B4F9004E27E2 /* Exceptions for "Maple Recorder" folder in "Maple Recorder Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				"Maple Recorder.entitlements",
+				Maple_Recorder.entitlements,
+			);
+			target = E339E39B2F43AEFB00E4CCE5 /* Maple Recorder Watch App */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -87,6 +96,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E32263372F42B4FB004E27E2 /* Exceptions for "Maple Recorder" folder in "Maple Recorder" target */,
+				E3F0A1002F50B4F9004E27E2 /* Exceptions for "Maple Recorder" folder in "Maple Recorder Watch App" target */,
 			);
 			path = "Maple Recorder";
 			sourceTree = "<group>";
@@ -278,6 +288,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				E32263162F42B4F9004E27E2 /* Maple Recorder */,
 				E339E39D2F43AEFB00E4CCE5 /* Maple Recorder Watch App */,
 			);
 			name = "Maple Recorder Watch App";
@@ -855,7 +866,7 @@
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Recorder Watch";
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple Recorder";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.just.maple.Maple-Recorder";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -888,7 +899,7 @@
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Recorder Watch";
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple Recorder";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.just.maple.Maple-Recorder";
 				LD_RUNPATH_SEARCH_PATHS = (
