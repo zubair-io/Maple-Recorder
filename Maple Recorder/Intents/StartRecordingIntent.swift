@@ -7,7 +7,9 @@ struct StartRecordingIntent: AppIntent {
     static var openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        NotificationCenter.default.post(name: .startRecordingFromIntent, object: nil)
+        await MainActor.run {
+            NotificationCenter.default.post(name: .startRecordingFromIntent, object: nil)
+        }
         return .result()
     }
 }

@@ -16,26 +16,30 @@ struct RunPromptIntent: AppIntent {
     var additionalContext: String?
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let store = RecordingStore()
-        guard let found = store.recordings.first(where: { $0.id == recording.id }) else {
-            throw IntentError.recordingNotFound
-        }
-        guard !found.transcript.isEmpty else {
-            throw IntentError.noTranscript
+        let (prompt, transcript, speakers, provider) = try await MainActor.run {
+            let store = RecordingStore()
+            guard let found = store.recordings.first(where: { $0.id == recording.id }) else {
+                throw IntentError.recordingNotFound
+            }
+            guard !found.transcript.isEmpty else {
+                throw IntentError.noTranscript
+            }
+
+            let promptStore = PromptStore()
+            guard let prompt = promptStore.prompts.first(where: { $0.name.lowercased() == promptName.lowercased() }) else {
+                throw IntentError.promptNotFound
+            }
+
+            let settingsManager = SettingsManager()
+            return (prompt, found.transcript, found.speakers, settingsManager.preferredProvider)
         }
 
-        let promptStore = PromptStore()
-        guard let prompt = promptStore.prompts.first(where: { $0.name.lowercased() == promptName.lowercased() }) else {
-            throw IntentError.promptNotFound
-        }
-
-        let settingsManager = SettingsManager()
         let result = try await PromptRunner.execute(
             prompt: prompt,
             additionalContext: additionalContext,
-            transcript: found.transcript,
-            speakers: found.speakers,
-            provider: settingsManager.preferredProvider
+            transcript: transcript,
+            speakers: speakers,
+            provider: provider
         )
 
         return .result(value: result.result)

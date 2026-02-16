@@ -9,15 +9,17 @@ struct GetTranscriptIntent: AppIntent {
     var recording: RecordingEntity
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
-        let store = RecordingStore()
-        guard let found = store.recordings.first(where: { $0.id == recording.id }) else {
-            throw IntentError.recordingNotFound
-        }
+        let text: String = try await MainActor.run {
+            let store = RecordingStore()
+            guard let found = store.recordings.first(where: { $0.id == recording.id }) else {
+                throw IntentError.recordingNotFound
+            }
 
-        let text = found.transcript.map { segment in
-            let speaker = found.speakers.first { $0.id == segment.speakerId }?.displayName ?? segment.speakerId
-            return "[\(speaker)] \(segment.text)"
-        }.joined(separator: "\n")
+            return found.transcript.map { segment in
+                let speaker = found.speakers.first { $0.id == segment.speakerId }?.displayName ?? segment.speakerId
+                return "[\(speaker)] \(segment.text)"
+            }.joined(separator: "\n")
+        }
 
         return .result(value: text)
     }

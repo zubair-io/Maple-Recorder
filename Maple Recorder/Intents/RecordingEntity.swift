@@ -29,15 +29,19 @@ struct RecordingEntity: AppEntity {
 
 struct RecordingQuery: EntityQuery {
     func entities(for identifiers: [UUID]) async throws -> [RecordingEntity] {
-        let store = RecordingStore()
-        return store.recordings
-            .filter { identifiers.contains($0.id) }
-            .map { $0.toEntity() }
+        await MainActor.run {
+            let store = RecordingStore()
+            return store.recordings
+                .filter { identifiers.contains($0.id) }
+                .map { $0.toEntity() }
+        }
     }
 
     func suggestedEntities() async throws -> [RecordingEntity] {
-        let store = RecordingStore()
-        return Array(store.recordings.prefix(10).map { $0.toEntity() })
+        await MainActor.run {
+            let store = RecordingStore()
+            return Array(store.recordings.prefix(10).map { $0.toEntity() })
+        }
     }
 }
 

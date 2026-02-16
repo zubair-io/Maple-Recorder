@@ -9,8 +9,10 @@ struct ListRecordingsIntent: AppIntent {
     var limit: Int
 
     func perform() async throws -> some IntentResult & ReturnsValue<[RecordingEntity]> {
-        let store = RecordingStore()
-        let entities = Array(store.recordings.prefix(limit).map { $0.toEntity() })
+        let entities: [RecordingEntity] = await MainActor.run {
+            let store = RecordingStore()
+            return Array(store.recordings.prefix(limit).map { $0.toEntity() })
+        }
         return .result(value: entities)
     }
 }
