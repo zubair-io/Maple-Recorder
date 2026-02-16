@@ -92,15 +92,17 @@ struct RecordingListView: View {
     @ViewBuilder
     private var modelStatusBanner: some View {
         if modelManager.isDownloading {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Downloading models…")
+            VStack(spacing: 6) {
+                ProgressView(value: modelManager.downloadProgress)
+                    .tint(MapleTheme.primary)
+
+                Text(modelManager.downloadStep.rawValue)
                     .font(.caption)
                     .foregroundStyle(MapleTheme.textSecondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
             .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 8))
         } else if let error = modelManager.error {
             HStack(spacing: 8) {
