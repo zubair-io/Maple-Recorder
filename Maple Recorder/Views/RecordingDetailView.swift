@@ -6,9 +6,24 @@ struct RecordingDetailView: View {
     @State private var player = AudioPlayer()
     @State private var syncEngine = PlaybackSyncEngine()
     @State private var editingSpeaker: Speaker?
-    @State private var activeTab: DetailTab = .summary
     @State private var isLoadingAudio = false
     @State private var audioLoaded = false
+
+    #if !os(watchOS)
+    // Section expansion state
+    @State private var isMeetingOverviewExpanded = true
+    @State private var isDetailsExpanded = true
+    @State private var isTagsExpanded = true
+    @State private var isTranscriptExpanded = false
+    @State private var isAIInsightsExpanded = true
+
+    // Editing state
+    @State private var editableTitle = ""
+    @State private var isEditingSummary = false
+    @State private var editableSummary = ""
+    @State private var isEditingTags = false
+    @State private var editableTagsText = ""
+    #endif
 
     #if !os(watchOS)
     var processingPipeline: ProcessingPipeline?
@@ -16,13 +31,8 @@ struct RecordingDetailView: View {
     var promptStore: PromptStore?
     var autoProcessor: AutoProcessor?
     @State private var showingAskAI = false
-    @State private var isRunningPrompt = false
     @State private var searchQuery = ""
     #endif
-
-    private enum DetailTab: Hashable {
-        case summary, transcript, actionItems
-    }
 
     private var recording: MapleRecording? {
         store.recordings.first { $0.id == recordingId }
@@ -31,33 +41,23 @@ struct RecordingDetailView: View {
     var body: some View {
         if var recording = recording {
             ZStack(alignment: .bottomTrailing) {
-                VStack(spacing: 0) {
-                    // Tab bar
-                    #if !os(watchOS)
-                    UnderlineTabBar(
-                        selection: $activeTab,
-                        tabs: [
-                            ("Summary", .summary),
-                            ("Transcript", .transcript),
-                            ("Action Items", .actionItems),
-                        ]
-                    )
-                    .padding(.horizontal)
-                    #endif
-
-                    // Tab content
-                    switch activeTab {
-                    case .summary:
-                        summaryTab(recording: recording)
-                    case .transcript:
-                        transcriptTab(recording: recording)
-                    case .actionItems:
+                ScrollView {
+                    VStack(spacing: 16) {
+                        meetingOverviewSection(recording: recording)
+                        detailsSection(recording: recording)
+                        tagsSection(recording: recording)
+                        transcriptSection(recording: recording)
                         #if !os(watchOS)
-                        actionItemsTab(recording: recording)
-                        #else
-                        emptyTranscriptPlaceholder
+                        aiInsightsSection(recording: recording)
+                        #endif
+
+                        #if !os(watchOS)
+                        if recording.transcript.isEmpty, let pipeline = processingPipeline {
+                            processingIndicator(pipeline: pipeline)
+                        }
                         #endif
                     }
+                    .padding()
                 }
                 .safeAreaInset(edge: .bottom) {
                     if !recording.audioFiles.isEmpty {
@@ -110,52 +110,32 @@ struct RecordingDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.trailing, 20)
-                    .padding(.bottom, 100) // Above playback bar
+                    .padding(.bottom, 100)
                 }
                 #endif
             }
             .background(MapleTheme.background)
-            #if os(macOS)
-            .navigationTitle("")
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(recording.title)
-                            .font(.headline)
-                            .foregroundStyle(MapleTheme.textPrimary)
-                        Text(recording.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2)
-                            .foregroundStyle(MapleTheme.textSecondary)
-                    }
-                }
-                if let autoProcessor {
-                    ToolbarItem(placement: .primaryAction) {
-                        reprocessButton(recording: recording, autoProcessor: autoProcessor)
-                    }
-                }
-            }
-            #elseif os(iOS)
+            #if os(watchOS)
             .navigationTitle(recording.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(recording.title)
-                            .font(.headline)
-                            .foregroundStyle(MapleTheme.textPrimary)
-                        Text(recording.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption2)
-                            .foregroundStyle(MapleTheme.textSecondary)
-                    }
-                }
-                if let autoProcessor {
-                    ToolbarItem(placement: .primaryAction) {
-                        reprocessButton(recording: recording, autoProcessor: autoProcessor)
-                    }
-                }
-            }
             #else
-            .navigationTitle(recording.title)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    TextField("Title", text: $editableTitle)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .onSubmit { commitTitleEdit(recording: recording) }
+                }
+                if let autoProcessor {
+                    ToolbarItem(placement: .primaryAction) {
+                        reprocessButton(recording: recording, autoProcessor: autoProcessor)
+                    }
+                }
+            }
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #elseif os(macOS)
+            .navigationTitle("")
+            #endif
             #endif
             .speakerEditor(
                 recording: Binding(
@@ -179,8 +159,17 @@ struct RecordingDetailView: View {
                 }
             }
             #endif
+            #if !os(watchOS)
+            .onAppear {
+                editableTitle = recording.title
+            }
+            .onChange(of: recordingId) {
+                if let rec = store.recordings.first(where: { $0.id == recordingId }) {
+                    editableTitle = rec.title
+                }
+            }
+            #endif
             .task {
-                // Pre-load audio only if files are already downloaded locally
                 let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
                 let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
                 let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
@@ -197,140 +186,210 @@ struct RecordingDetailView: View {
         }
     }
 
-    // MARK: - Summary Tab
+    // MARK: - Meeting Overview Section
 
     @ViewBuilder
-    private func summaryTab(recording: MapleRecording) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Meeting Overview card
-                if !recording.summary.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("MEETING OVERVIEW")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(MapleTheme.primary)
-
-                        Text(recording.summary)
+    private func meetingOverviewSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        if !recording.summary.isEmpty {
+            watchSection(title: "Meeting Overview") {
+                Text(recording.summary)
+                    .font(.body)
+                    .foregroundStyle(MapleTheme.textPrimary)
+            }
+        }
+        #else
+        if !recording.summary.isEmpty || isEditingSummary {
+            DisclosureGroup(isExpanded: $isMeetingOverviewExpanded) {
+                if isEditingSummary {
+                    VStack(alignment: .trailing, spacing: 8) {
+                        TextEditor(text: $editableSummary)
                             .font(.body)
                             .foregroundStyle(MapleTheme.textPrimary)
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(MapleTheme.surface, in: .rect(cornerRadius: 12))
-                }
-
-                // Key Highlights
-                if !recording.transcript.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("KEY HIGHLIGHTS")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(MapleTheme.primary)
+                            .frame(minHeight: 80)
+                            .scrollContentBackground(.hidden)
 
                         HStack(spacing: 12) {
-                            highlightCard(
-                                icon: "person.2.fill",
-                                title: "\(recording.speakers.count)",
-                                subtitle: "Speakers"
-                            )
-                            highlightCard(
-                                icon: "clock.fill",
-                                title: formatDuration(recording.duration),
-                                subtitle: "Duration"
-                            )
-                            highlightCard(
-                                icon: "text.alignleft",
-                                title: "\(recording.transcript.count)",
-                                subtitle: "Segments"
-                            )
+                            Button("Cancel") {
+                                isEditingSummary = false
+                            }
+                            .foregroundStyle(MapleTheme.textSecondary)
+
+                            Button("Save") {
+                                commitSummaryEdit(recording: recording)
+                            }
+                            .foregroundStyle(MapleTheme.primary)
+                            .fontWeight(.semibold)
                         }
                     }
-                }
-
-                // Tags
-                if !recording.tags.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("TAGS")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(MapleTheme.primary)
-
-                        FlowLayout(spacing: 6) {
-                            ForEach(recording.tags, id: \.self) { tag in
-                                TagPill(tag: tag)
+                } else {
+                    Text(recording.summary)
+                        .font(.body)
+                        .foregroundStyle(MapleTheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Edit Summary") {
+                                editableSummary = recording.summary
+                                isEditingSummary = true
                             }
                         }
-                    }
                 }
+            } label: {
+                Text("Meeting Overview")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(MapleTheme.primary)
+            }
+            .disclosureGroupStyle(MapleSectionStyle())
+        }
+        #endif
+    }
 
-                // Metadata
-                HStack(spacing: 16) {
-                    Label(formatDuration(recording.duration), systemImage: "clock")
-                    Label(recording.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
-                }
+    // MARK: - Details Section
+
+    @ViewBuilder
+    private func detailsSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        watchSection(title: "Details") {
+            VStack(alignment: .leading, spacing: 6) {
+                detailRow(icon: "calendar", label: "Date", value: MarkdownSerializer.formattedDate(recording.createdAt))
+                detailRow(icon: "clock", label: "Duration", value: MarkdownSerializer.formattedDuration(recording.duration))
+                detailRow(icon: "person.2", label: "Speakers", value: "\(recording.speakers.count)")
+            }
+        }
+        #else
+        DisclosureGroup(isExpanded: $isDetailsExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                detailRow(icon: "calendar", label: "Date", value: MarkdownSerializer.formattedDate(recording.createdAt))
+                detailRow(icon: "clock", label: "Duration", value: MarkdownSerializer.formattedDuration(recording.duration))
+                detailRow(icon: "person.2", label: "Speakers", value: "\(recording.speakers.count)")
+            }
+        } label: {
+            Text("Details")
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundStyle(MapleTheme.primary)
+        }
+        .disclosureGroupStyle(MapleSectionStyle())
+        #endif
+    }
+
+    private func detailRow(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(MapleTheme.textSecondary)
+                .frame(width: 20)
+            Text(label)
                 .font(.subheadline)
                 .foregroundStyle(MapleTheme.textSecondary)
-
-                #if !os(watchOS)
-                // Prompt Results
-                PromptResultsView(
-                    results: recording.promptResults,
-                    onDelete: { result in
-                        var updated = recording
-                        updated.promptResults.removeAll { $0.id == result.id }
-                        try? store.update(updated)
-                    }
-                )
-                #endif
-
-                #if !os(watchOS)
-                if recording.transcript.isEmpty, let pipeline = processingPipeline {
-                    processingIndicator(pipeline: pipeline)
-                }
-                #endif
-            }
-            .padding()
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(MapleTheme.textPrimary)
         }
     }
 
-    // MARK: - Transcript Tab
+    // MARK: - Tags Section
 
     @ViewBuilder
-    private func transcriptTab(recording: MapleRecording) -> some View {
-        VStack(spacing: 0) {
-            #if !os(watchOS)
-            // Search bar
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(MapleTheme.textSecondary)
-                TextField("Search transcript…", text: $searchQuery)
-                    .font(.subheadline)
-                if !searchQuery.isEmpty {
-                    Button {
-                        searchQuery = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(MapleTheme.textSecondary)
+    private func tagsSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        if !recording.tags.isEmpty {
+            watchSection(title: "Tags") {
+                FlowLayout(spacing: 6) {
+                    ForEach(recording.tags, id: \.self) { tag in
+                        TagPill(tag: tag)
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            #endif
+        }
+        #else
+        if !recording.tags.isEmpty || isEditingTags {
+            DisclosureGroup(isExpanded: $isTagsExpanded) {
+                if isEditingTags {
+                    VStack(alignment: .trailing, spacing: 8) {
+                        TextField("#tag1 #tag2 #tag3", text: $editableTagsText)
+                            .font(.body)
+                            .textFieldStyle(.plain)
 
-            ScrollView {
-                #if !os(watchOS)
-                if recording.transcript.isEmpty, let pipeline = processingPipeline {
-                    processingIndicator(pipeline: pipeline)
-                } else if recording.transcript.isEmpty {
-                    emptyTranscriptPlaceholder
-                        .padding(.top, 40)
+                        HStack(spacing: 12) {
+                            Button("Cancel") {
+                                isEditingTags = false
+                            }
+                            .foregroundStyle(MapleTheme.textSecondary)
+
+                            Button("Save") {
+                                commitTagsEdit(recording: recording)
+                            }
+                            .foregroundStyle(MapleTheme.primary)
+                            .fontWeight(.semibold)
+                        }
+                    }
                 } else {
+                    FlowLayout(spacing: 6) {
+                        ForEach(recording.tags, id: \.self) { tag in
+                            TagPill(tag: tag)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button("Edit Tags") {
+                            editableTagsText = recording.tags.map { "#\($0)" }.joined(separator: " ")
+                            isEditingTags = true
+                        }
+                    }
+                }
+            } label: {
+                Text("Tags")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(MapleTheme.primary)
+            }
+            .disclosureGroupStyle(MapleSectionStyle())
+        }
+        #endif
+    }
+
+    // MARK: - Transcript Section
+
+    @ViewBuilder
+    private func transcriptSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        if !recording.transcript.isEmpty {
+            watchSection(title: "Transcript") {
+                Text("\(recording.transcript.count) segments — process on iPhone to view.")
+                    .font(.body)
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .italic()
+            }
+        }
+        #else
+        if !recording.transcript.isEmpty {
+            DisclosureGroup(isExpanded: $isTranscriptExpanded) {
+                VStack(spacing: 0) {
+                    // Search bar
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(MapleTheme.textSecondary)
+                        TextField("Search transcript…", text: $searchQuery)
+                            .font(.subheadline)
+                        if !searchQuery.isEmpty {
+                            Button {
+                                searchQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(MapleTheme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
+                    .padding(.bottom, 8)
+
                     TranscriptView(
                         transcript: recording.transcript,
                         speakers: recording.speakers,
@@ -343,30 +402,49 @@ struct RecordingDetailView: View {
                             editingSpeaker = speaker
                         }
                     )
-                    .padding(.horizontal)
                 }
-                #else
-                emptyTranscriptPlaceholder
-                    .padding(.top, 40)
-                #endif
+            } label: {
+                HStack {
+                    Text("Transcript")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundStyle(MapleTheme.primary)
+                    Text("\(recording.transcript.count) segments")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
             }
+            .disclosureGroupStyle(MapleSectionStyle())
         }
+        #endif
     }
 
-    // MARK: - Action Items Tab
+    // MARK: - watchOS Section Helper
+
+    #if os(watchOS)
+    private func watchSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundStyle(MapleTheme.primary)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(MapleTheme.surface, in: .rect(cornerRadius: 12))
+    }
+    #endif
+
+    // MARK: - AI Insights Section
 
     #if !os(watchOS)
     @ViewBuilder
-    private func actionItemsTab(recording: MapleRecording) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Find action items from prompt results
-                let actionItemResults = recording.promptResults.filter {
-                    $0.promptName.localizedCaseInsensitiveContains("action")
-                }
-
-                if !actionItemResults.isEmpty {
-                    ForEach(actionItemResults) { result in
+    private func aiInsightsSection(recording: MapleRecording) -> some View {
+        if !recording.promptResults.isEmpty {
+            DisclosureGroup(isExpanded: $isAIInsightsExpanded) {
+                VStack(spacing: 12) {
+                    ForEach(recording.promptResults) { result in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text(result.promptName)
@@ -374,70 +452,38 @@ struct RecordingDetailView: View {
                                     .foregroundStyle(MapleTheme.textPrimary)
                                 Spacer()
                                 ProviderBadge(provider: result.llmProvider)
+                                Button {
+                                    var updated = recording
+                                    updated.promptResults.removeAll { $0.id == result.id }
+                                    try? store.update(updated)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.caption)
+                                        .foregroundStyle(MapleTheme.textSecondary)
+                                }
+                                .buttonStyle(.plain)
                             }
 
-                            // Parse result lines as checkable items
-                            let items = parseActionItems(result.result)
-                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "circle")
-                                        .font(.body)
-                                        .foregroundStyle(MapleTheme.textSecondary)
-                                    Text(item)
-                                        .font(.body)
-                                        .foregroundStyle(MapleTheme.textPrimary)
-                                }
-                            }
+                            Text(result.result)
+                                .font(.body)
+                                .foregroundStyle(MapleTheme.textPrimary)
                         }
                         .padding()
-                        .background(MapleTheme.surface, in: .rect(cornerRadius: 12))
+                        .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
                     }
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "checklist")
-                            .font(.largeTitle)
-                            .foregroundStyle(MapleTheme.textSecondary)
-
-                        Text("No Action Items Yet")
-                            .font(.headline)
-                            .foregroundStyle(MapleTheme.textPrimary)
-
-                        Text("Use the AI button to extract action items from this recording.")
-                            .font(.subheadline)
-                            .foregroundStyle(MapleTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-
-                        if !recording.transcript.isEmpty {
-                            Button {
-                                showingAskAI = true
-                            } label: {
-                                Label("Extract Action Items", systemImage: "sparkles")
-                                    .font(.headline)
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 12)
-                                    .background(MapleTheme.primary, in: .capsule)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 60)
                 }
+            } label: {
+                Text("AI Insights")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(MapleTheme.primary)
             }
-            .padding()
+            .disclosureGroupStyle(MapleSectionStyle())
         }
     }
     #endif
 
     // MARK: - Subviews
-
-    private var emptyTranscriptPlaceholder: some View {
-        Text("Transcript will appear here after processing.")
-            .font(.body)
-            .foregroundStyle(MapleTheme.textSecondary)
-            .italic()
-    }
 
     #if !os(watchOS)
     @ViewBuilder
@@ -473,30 +519,46 @@ struct RecordingDetailView: View {
     }
     #endif
 
-    private func highlightCard(icon: String, title: String, subtitle: String) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(MapleTheme.primary)
-                .frame(width: 36, height: 36)
-                .background(MapleTheme.primaryLight.opacity(0.15), in: .circle)
+    // MARK: - Editing
 
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(MapleTheme.textPrimary)
-
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(MapleTheme.textSecondary)
+    #if !os(watchOS)
+    private func commitTitleEdit(recording: MapleRecording) {
+        let trimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != recording.title else {
+            editableTitle = recording.title
+            return
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(MapleTheme.surface, in: .rect(cornerRadius: 10))
+        var updated = recording
+        updated.title = trimmed
+        updated.modifiedAt = Date()
+        try? store.update(updated)
     }
+
+    private func commitSummaryEdit(recording: MapleRecording) {
+        let trimmed = editableSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updated = recording
+        updated.summary = trimmed
+        updated.modifiedAt = Date()
+        try? store.update(updated)
+        isEditingSummary = false
+    }
+
+    private func commitTagsEdit(recording: MapleRecording) {
+        let parsed = editableTagsText
+            .components(separatedBy: .whitespaces)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+            .filter { !$0.isEmpty }
+        var updated = recording
+        updated.tags = parsed
+        updated.modifiedAt = Date()
+        try? store.update(updated)
+        isEditingTags = false
+    }
+    #endif
 
     // MARK: - Audio
 
-    /// Load audio synchronously — only call when files are known to be local.
     private func loadAudioSync(recording: MapleRecording) {
         let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
         let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
@@ -513,7 +575,6 @@ struct RecordingDetailView: View {
         audioLoaded = true
     }
 
-    /// Download from iCloud if needed, then load and auto-play.
     private func loadAudioOnDemand(recording: MapleRecording) async {
         let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
         let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
@@ -534,33 +595,40 @@ struct RecordingDetailView: View {
         player.play()
         syncEngine.start(player: player, transcript: recording.transcript)
     }
-
-    // MARK: - Helpers
-
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-
-    #if !os(watchOS)
-    private func parseActionItems(_ text: String) -> [String] {
-        text.components(separatedBy: .newlines)
-            .map { line in
-                var cleaned = line.trimmingCharacters(in: .whitespaces)
-                // Remove bullet markers
-                for prefix in ["- ", "• ", "* ", "- [ ] ", "- [x] "] {
-                    if cleaned.hasPrefix(prefix) {
-                        cleaned = String(cleaned.dropFirst(prefix.count))
-                    }
-                }
-                // Remove numbered list prefix
-                if let range = cleaned.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
-                    cleaned = String(cleaned[range.upperBound...])
-                }
-                return cleaned.trimmingCharacters(in: .whitespaces)
-            }
-            .filter { !$0.isEmpty }
-    }
-    #endif
 }
+
+// MARK: - Maple Section Style
+
+#if !os(watchOS)
+struct MapleSectionStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    configuration.label
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .animation(.easeInOut(duration: 0.25), value: configuration.isExpanded)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+
+            if configuration.isExpanded {
+                configuration.content
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+        }
+        .background(MapleTheme.surface, in: .rect(cornerRadius: 12))
+    }
+}
+#endif

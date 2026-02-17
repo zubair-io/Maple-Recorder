@@ -53,6 +53,11 @@ struct MarkdownSerializerTests {
         #expect(result.transcript.count == 1)
         #expect(result.transcript[0].text == "Good morning everyone")
         #expect(result.transcript[0].words.count == 3)
+
+        // Verify new section format
+        #expect(markdown.contains("## Meeting Overview"))
+        #expect(markdown.contains("## Details"))
+        #expect(markdown.contains("## Transcript"))
     }
 
     @Test func emptyTranscript() throws {
@@ -113,7 +118,8 @@ struct MarkdownSerializerTests {
 
         let markdown = MarkdownSerializer.serialize(recording)
 
-        #expect(markdown.contains("## Action Items"))
+        #expect(markdown.contains("## AI Insights"))
+        #expect(markdown.contains("### Action Items"))
         #expect(markdown.contains("Apple Foundation Models"))
         #expect(markdown.contains("1. Review PR"))
 
@@ -140,6 +146,8 @@ struct MarkdownSerializerTests {
         #expect(result != nil)
         #expect(result!.title == "Quick Note")
         #expect(result!.summary == "")
+        // No Meeting Overview section when summary is empty
+        #expect(!markdown.contains("## Meeting Overview"))
     }
 
     @Test func specialCharactersInTitle() throws {
@@ -172,7 +180,144 @@ struct MarkdownSerializerTests {
 
         let result = MarkdownSerializer.deserialize(markdown)
         #expect(result != nil)
-        // Compare to within 1 second to account for encoding precision
         #expect(abs(result!.createdAt.timeIntervalSince1970 - fixedDate.timeIntervalSince1970) < 1)
+    }
+
+    // MARK: - New Format Tests
+
+    @Test func detailsSectionSerialization() throws {
+        let recording = makeSampleRecording()
+        let markdown = MarkdownSerializer.serialize(recording)
+
+        #expect(markdown.contains("## Details"))
+        #expect(markdown.contains("- **Duration**: 5:00"))
+        #expect(markdown.contains("- **Speakers**: 2"))
+        #expect(markdown.contains("- **Date**:"))
+    }
+
+    @Test func tagsSectionSerialization() throws {
+        let recording = MapleRecording(
+            title: "Tagged Recording",
+            summary: "Has tags.",
+            audioFiles: ["test.m4a"],
+            duration: 60.0,
+            createdAt: fixedDate,
+            modifiedAt: fixedDate,
+            tags: ["planning", "quarterly-review"]
+        )
+
+        let markdown = MarkdownSerializer.serialize(recording)
+
+        #expect(markdown.contains("## Tags"))
+        #expect(markdown.contains("#planning"))
+        #expect(markdown.contains("#quarterly-review"))
+
+        // Round-trip: tags come from JSON, not from ## Tags section
+        let result = MarkdownSerializer.deserialize(markdown)
+        #expect(result != nil)
+        #expect(result!.tags == ["planning", "quarterly-review"])
+    }
+
+    @Test func noTagsSectionWhenEmpty() throws {
+        let recording = MapleRecording(
+            title: "No Tags",
+            audioFiles: ["test.m4a"],
+            createdAt: fixedDate,
+            modifiedAt: fixedDate
+        )
+
+        let markdown = MarkdownSerializer.serialize(recording)
+        #expect(!markdown.contains("## Tags"))
+    }
+
+    @Test func transcriptSectionSerialization() throws {
+        let recording = makeSampleRecording()
+        let markdown = MarkdownSerializer.serialize(recording)
+
+        #expect(markdown.contains("## Transcript"))
+        #expect(markdown.contains("**Alice** (0:00): Good morning everyone"))
+    }
+
+    @Test func noTranscriptSectionWhenEmpty() throws {
+        let recording = MapleRecording(
+            title: "No Transcript",
+            audioFiles: ["test.m4a"],
+            createdAt: fixedDate,
+            modifiedAt: fixedDate
+        )
+
+        let markdown = MarkdownSerializer.serialize(recording)
+        #expect(!markdown.contains("## Transcript"))
+    }
+
+    @Test func fullRoundTripAllSections() throws {
+        let recording = MapleRecording(
+            title: "Full Meeting",
+            summary: "Complete meeting with all sections.",
+            audioFiles: ["full.m4a"],
+            duration: 600.0,
+            createdAt: fixedDate,
+            modifiedAt: fixedDate,
+            speakers: [
+                Speaker(id: "s0", displayName: "Alice", color: "speaker0", embedding: nil),
+                Speaker(id: "s1", displayName: "Bob", color: "speaker1", embedding: nil),
+            ],
+            transcript: [
+                TranscriptSegment(
+                    speakerId: "s0",
+                    start: 0.0,
+                    end: 3.0,
+                    text: "Hello team",
+                    words: [
+                        WordTiming(word: "Hello", start: 0.0, end: 0.5),
+                        WordTiming(word: "team", start: 0.6, end: 1.0),
+                    ]
+                ),
+                TranscriptSegment(
+                    speakerId: "s1",
+                    start: 3.5,
+                    end: 6.0,
+                    text: "Hi everyone",
+                    words: [
+                        WordTiming(word: "Hi", start: 3.5, end: 3.8),
+                        WordTiming(word: "everyone", start: 3.9, end: 4.5),
+                    ]
+                ),
+            ],
+            promptResults: [
+                PromptResult(
+                    id: UUID(),
+                    promptName: "Action Items",
+                    promptBody: "List action items",
+                    llmProvider: .claude,
+                    result: "1. Follow up on design\n2. Schedule review",
+                    createdAt: fixedDate
+                ),
+            ],
+            tags: ["standup", "engineering"]
+        )
+
+        let markdown = MarkdownSerializer.serialize(recording)
+
+        // Verify all sections present
+        #expect(markdown.contains("# Full Meeting"))
+        #expect(markdown.contains("## Meeting Overview"))
+        #expect(markdown.contains("## Details"))
+        #expect(markdown.contains("## Tags"))
+        #expect(markdown.contains("## Transcript"))
+        #expect(markdown.contains("## AI Insights"))
+        #expect(markdown.contains("### Action Items"))
+
+        // Round-trip
+        let result = MarkdownSerializer.deserialize(markdown)
+        #expect(result != nil)
+        let r = result!
+        #expect(r.title == "Full Meeting")
+        #expect(r.summary == "Complete meeting with all sections.")
+        #expect(r.tags == ["standup", "engineering"])
+        #expect(r.speakers.count == 2)
+        #expect(r.transcript.count == 2)
+        #expect(r.promptResults.count == 1)
+        #expect(r.duration == 600.0)
     }
 }

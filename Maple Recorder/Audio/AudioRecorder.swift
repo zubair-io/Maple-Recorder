@@ -35,7 +35,7 @@ final class AudioRecorder {
     #endif
 
     // Chunking state
-    private var recordingId: UUID?
+    private(set) var recordingId: UUID?
     private var chunkURLs: [URL] = []
     private var chunkIndex = 0
     private var chunkStartTime: Date?

@@ -407,6 +407,7 @@ struct QuickRecordView: View {
         }
 
         let recording = MapleRecording(
+            id: recorder.recordingId ?? UUID(),
             title: title,
             audioFiles: audioFileNames,
             systemAudioFiles: systemAudioFileNames,
