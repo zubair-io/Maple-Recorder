@@ -6,6 +6,7 @@ struct RecordingListView: View {
     var modelManager: ModelManager
     @Bindable var settingsManager: SettingsManager
     @Bindable var promptStore: PromptStore
+    var autoProcessor: AutoProcessor?
     #endif
     @State private var recorder = AudioRecorder()
     @State private var recordingURL: URL?
@@ -50,7 +51,8 @@ struct RecordingListView: View {
                         recordingId: id,
                         processingPipeline: processingRecordingId == id ? activePipeline : nil,
                         settingsManager: settingsManager,
-                        promptStore: promptStore
+                        promptStore: promptStore,
+                        autoProcessor: autoProcessor
                     )
                     #else
                     RecordingDetailView(
@@ -112,7 +114,8 @@ struct RecordingListView: View {
                 recordingId: id,
                 processingPipeline: processingRecordingId == id ? activePipeline : nil,
                 settingsManager: settingsManager,
-                promptStore: promptStore
+                promptStore: promptStore,
+                autoProcessor: autoProcessor
             )
         } else {
             ContentUnavailableView(

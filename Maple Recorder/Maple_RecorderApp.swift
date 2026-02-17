@@ -3,10 +3,12 @@ import SwiftUI
 @main
 struct Maple_RecorderApp: App {
     @State private var store = RecordingStore()
+    @State private var syncMonitor: ICloudSyncMonitor?
     #if !os(watchOS)
     @State private var modelManager = ModelManager()
     @State private var settingsManager = SettingsManager()
     @State private var promptStore = PromptStore()
+    @State private var autoProcessor: AutoProcessor?
     #endif
     #if os(iOS)
     @State private var phoneTransferHandler = PhoneTransferHandler()
@@ -19,15 +21,29 @@ struct Maple_RecorderApp: App {
         WindowGroup {
             #if os(watchOS)
             WatchRecordingView(store: store)
+                .onAppear {
+                    let monitor = ICloudSyncMonitor(store: store)
+                    monitor.startMonitoring()
+                    syncMonitor = monitor
+                }
             #else
             RecordingListView(
                 store: store,
                 modelManager: modelManager,
                 settingsManager: settingsManager,
-                promptStore: promptStore
+                promptStore: promptStore,
+                autoProcessor: autoProcessor
             )
             .task {
+                let monitor = ICloudSyncMonitor(store: store)
+                monitor.startMonitoring()
+                syncMonitor = monitor
+
                 await modelManager.ensureModelsReady()
+
+                let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
+                autoProcessor = processor
+                processor.startWatching()
             }
             #if os(iOS)
             .onAppear {

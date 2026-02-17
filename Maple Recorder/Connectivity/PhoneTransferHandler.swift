@@ -54,6 +54,18 @@ final class PhoneTransferHandler: NSObject, WCSessionDelegate, @unchecked Sendab
     private func handleReceivedFile(tempURL: URL, metadata: [String: Any]) async {
         guard let store, let modelManager else { return }
 
+        // Check for duplicate: if a recording with the same ID already exists (synced via iCloud), skip
+        if let recordingIdString = metadata["recordingId"] as? String,
+           let recordingId = UUID(uuidString: recordingIdString),
+           store.recordings.contains(where: { $0.id == recordingId }) {
+            // Recording already synced via iCloud — just trigger processing if unprocessed
+            if let existing = store.recordings.first(where: { $0.id == recordingId }),
+               existing.transcript.isEmpty {
+                await processRecording(existing)
+            }
+            return
+        }
+
         // Copy file to recordings directory
         let fileName = tempURL.lastPathComponent
         let destURL = StorageLocation.recordingsURL.appendingPathComponent(fileName)
@@ -75,6 +87,12 @@ final class PhoneTransferHandler: NSObject, WCSessionDelegate, @unchecked Sendab
             print("Failed to save watch recording: \(error)")
             return
         }
+
+        await processRecording(recording)
+    }
+
+    private func processRecording(_ recording: MapleRecording) async {
+        guard let store, let modelManager else { return }
 
         // Ensure models are downloaded before processing
         if !modelManager.isReady {

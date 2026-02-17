@@ -12,6 +12,7 @@ struct RecordingDetailView: View {
     var processingPipeline: ProcessingPipeline?
     var settingsManager: SettingsManager?
     var promptStore: PromptStore?
+    var autoProcessor: AutoProcessor?
     @State private var showingAskAI = false
     @State private var isRunningPrompt = false
     @State private var searchQuery = ""
@@ -108,6 +109,11 @@ struct RecordingDetailView: View {
                             .foregroundStyle(MapleTheme.textSecondary)
                     }
                 }
+                if let autoProcessor {
+                    ToolbarItem(placement: .primaryAction) {
+                        reprocessButton(recording: recording, autoProcessor: autoProcessor)
+                    }
+                }
             }
             #elseif os(iOS)
             .navigationTitle(recording.title)
@@ -121,6 +127,11 @@ struct RecordingDetailView: View {
                         Text(recording.createdAt.formatted(date: .abbreviated, time: .shortened))
                             .font(.caption2)
                             .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                }
+                if let autoProcessor {
+                    ToolbarItem(placement: .primaryAction) {
+                        reprocessButton(recording: recording, autoProcessor: autoProcessor)
                     }
                 }
             }
@@ -404,6 +415,25 @@ struct RecordingDetailView: View {
     }
 
     #if !os(watchOS)
+    @ViewBuilder
+    private func reprocessButton(recording: MapleRecording, autoProcessor: AutoProcessor) -> some View {
+        let isProcessing = autoProcessor.processingIds.contains(recording.id)
+        Button {
+            Task { await autoProcessor.reprocess(recording) }
+        } label: {
+            if isProcessing {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Label(
+                    recording.transcript.isEmpty ? "Process" : "Reprocess",
+                    systemImage: "arrow.clockwise"
+                )
+            }
+        }
+        .disabled(isProcessing || recording.audioFiles.isEmpty)
+    }
+
     @ViewBuilder
     private func processingIndicator(pipeline: ProcessingPipeline) -> some View {
         VStack(spacing: 8) {
