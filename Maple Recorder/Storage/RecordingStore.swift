@@ -103,6 +103,9 @@ final class RecordingStore {
         updated.transcript = result.segments
         updated.speakers = result.speakers
         updated.summary = result.summary
+        if !result.generatedTitle.isEmpty {
+            updated.title = result.generatedTitle
+        }
         updated.modifiedAt = Date()
         try save(updated)
     }

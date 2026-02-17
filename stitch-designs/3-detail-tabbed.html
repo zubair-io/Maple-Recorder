@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Maple Recorder - Detail View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#993629",
+                        "background-light": "#f8f6f6",
+                        "background-dark": "#1f1413",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-[#3d2a28] font-display">
+<!-- Main Container (Mobile Framework) -->
+<div class="relative mx-auto min-h-screen max-w-md bg-background-light dark:bg-background-dark flex flex-col shadow-2xl overflow-hidden">
+<!-- Header Section -->
+<header class="sticky top-0 z-20 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-sm border-b border-primary/10">
+<div class="flex items-center justify-between p-4 pb-2">
+<button class="flex h-10 w-10 items-center justify-center rounded-full hover:bg-primary/5 transition-colors">
+<span class="material-symbols-outlined text-primary">arrow_back</span>
+</button>
+<div class="flex flex-col items-center flex-1 overflow-hidden px-2">
+<h1 class="text-lg font-bold leading-tight truncate w-full text-center text-[#191110] dark:text-white">Weekly Sync Meeting</h1>
+<p class="text-xs font-medium text-primary/70">October 24, 2023 • 45:12</p>
+</div>
+<button class="flex h-10 w-10 items-center justify-center rounded-full hover:bg-primary/5 transition-colors">
+<span class="material-symbols-outlined text-[#191110] dark:text-white">more_horiz</span>
+</button>
+</div>
+<!-- Segmented Control (Tabs) -->
+<div class="px-4 px-4 pt-2">
+<div class="flex items-center justify-between border-b border-primary/10">
+<label class="relative flex cursor-pointer flex-1 flex-col items-center justify-center py-2 text-primary text-sm font-bold transition-all">
+<span class="truncate">Summary</span>
+<div class="absolute bottom-0 h-0.5 w-full bg-primary"></div>
+<input checked="" class="hidden" name="tabs" type="radio" value="Summary"/>
+</label>
+<label class="flex cursor-pointer flex-1 flex-col items-center justify-center py-2 text-primary/40 text-sm font-medium hover:text-primary transition-all">
+<span class="truncate">Transcript</span>
+<input class="hidden" name="tabs" type="radio" value="Transcript"/>
+</label>
+<label class="flex cursor-pointer flex-1 flex-col items-center justify-center py-2 text-primary/40 text-sm font-medium hover:text-primary transition-all">
+<span class="truncate">Action Items</span>
+<input class="hidden" name="tabs" type="radio" value="Action Items"/>
+</label>
+</div>
+</div>
+</header>
+<!-- Dynamic Content Area -->
+<main class="flex-1 overflow-y-auto no-scrollbar pb-32">
+<!-- Summary Tab Content (Active State Example) -->
+<div class="p-4 space-y-6">
+<!-- Overview Card -->
+<div class="bg-white dark:bg-white/5 rounded-xl p-5 border border-primary/5 shadow-sm">
+<h3 class="text-sm font-bold uppercase tracking-wider text-primary mb-3">Meeting Overview</h3>
+<p class="text-[15px] leading-relaxed text-[#3d2a28] dark:text-gray-200">
+                        The team discussed the Q4 roadmap adjustments, focusing on the Maple Recorder 2.0 launch. Primary concerns were around the new AI summarization engine's latency and the mobile UI consistency.
+                    </p>
+</div>
+<!-- Key Highlights -->
+<div class="space-y-3">
+<h3 class="text-sm font-bold uppercase tracking-wider text-primary px-1">Key Highlights</h3>
+<div class="space-y-3">
+<div class="flex gap-4 p-4 bg-white dark:bg-white/5 rounded-xl border border-primary/5 shadow-sm">
+<div class="mt-1 flex-shrink-0 size-6 bg-primary/10 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-xs text-primary font-bold">bolt</span>
+</div>
+<div>
+<h4 class="font-bold text-[#191110] dark:text-white">Q4 Timeline Confirmed</h4>
+<p class="text-sm text-[#3d2a28]/70 dark:text-gray-400 mt-1">Beta testing starts Nov 15th with internal users only.</p>
+</div>
+</div>
+<div class="flex gap-4 p-4 bg-white dark:bg-white/5 rounded-xl border border-primary/5 shadow-sm">
+<div class="mt-1 flex-shrink-0 size-6 bg-primary/10 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-xs text-primary font-bold">trending_up</span>
+</div>
+<div>
+<h4 class="font-bold text-[#191110] dark:text-white">Marketing Budget Increase</h4>
+<p class="text-sm text-[#3d2a28]/70 dark:text-gray-400 mt-1">20% boost approved for the launch week campaigns.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Metadata/Tags -->
+<div class="flex flex-wrap gap-2 pt-2">
+<span class="px-3 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">#Roadmap</span>
+<span class="px-3 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">#Marketing</span>
+<span class="px-3 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full">#AI-Engine</span>
+</div>
+</div>
+</main>
+<!-- AI Floating Action Button -->
+<button class="absolute bottom-24 right-4 z-30 size-14 rounded-full bg-primary shadow-xl flex items-center justify-center text-white hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-2xl">auto_awesome</span>
+</button>
+<!-- Sticky Audio Player -->
+<div class="fixed bottom-0 w-full max-w-md bg-white dark:bg-[#2a1b1a] border-t border-primary/10 px-4 py-4 z-40">
+<div class="flex items-center gap-4">
+<button class="size-12 rounded-full bg-primary flex items-center justify-center text-white shadow-md">
+<span class="material-symbols-outlined text-3xl">play_arrow</span>
+</button>
+<div class="flex-1 space-y-2">
+<div class="h-1.5 w-full bg-primary/10 rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 35%;"></div>
+</div>
+<div class="flex justify-between text-[10px] font-bold text-primary/60 uppercase tracking-widest">
+<span>12:45</span>
+<span>45:12</span>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="size-8 flex items-center justify-center text-primary/60">
+<span class="material-symbols-outlined">replay_10</span>
+</button>
+<button class="size-8 flex items-center justify-center text-primary/60">
+<span class="material-symbols-outlined">forward_10</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation Bar -->
+<nav class="hidden"> <!-- Hidden for detail view focus, but structure ready -->
+<div class="flex gap-2 border-t border-primary/10 bg-background-light dark:bg-background-dark px-4 pb-3 pt-2">
+<a class="flex flex-1 flex-col items-center justify-end gap-1 rounded-full text-primary" href="#">
+<span class="material-symbols-outlined">mic</span>
+<p class="text-xs font-medium">Recordings</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-primary/50" href="#">
+<span class="material-symbols-outlined">search</span>
+<p class="text-xs font-medium">Search</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-primary/50" href="#">
+<span class="material-symbols-outlined">folder</span>
+<p class="text-xs font-medium">Library</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-primary/50" href="#">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-xs font-medium">Settings</p>
+</a>
+</div>
+</nav>
+</div>
+</body></html>

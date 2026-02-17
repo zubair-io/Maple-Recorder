@@ -23,7 +23,7 @@ final class ProcessingPipeline {
         transcriptionManager: TranscriptionManager,
         diarizationManager: DiarizationManager,
         summarizationProvider: LLMProvider = .none
-    ) async throws -> (segments: [TranscriptSegment], speakers: [Speaker], summary: String) {
+    ) async throws -> (segments: [TranscriptSegment], speakers: [Speaker], summary: String, generatedTitle: String) {
         do {
             state = .converting
             progress = "Converting audio…"
@@ -49,21 +49,24 @@ final class ProcessingPipeline {
             let diaSegments = mapDiarizationResult(dia)
             let merged = TranscriptMerger.merge(asrSegments: asrSegments, diarizationSegments: diaSegments)
 
-            // Summarize if provider is configured
+            // Summarize and generate title if provider is configured
             var summary = ""
+            var generatedTitle = ""
             if summarizationProvider != .none {
                 state = .summarizing
                 progress = "Generating summary…"
-                summary = (try? await Summarizer.summarize(
+                let result = (try? await Summarizer.summarize(
                     transcript: merged.segments,
                     speakers: merged.speakers,
                     provider: summarizationProvider
-                )) ?? ""
+                )) ?? SummaryResult(title: "", summary: "")
+                generatedTitle = result.title
+                summary = result.summary
             }
 
             state = .complete
             progress = ""
-            return (segments: merged.segments, speakers: merged.speakers, summary: summary)
+            return (segments: merged.segments, speakers: merged.speakers, summary: summary, generatedTitle: generatedTitle)
         } catch {
             state = .failed(error.localizedDescription)
             progress = ""

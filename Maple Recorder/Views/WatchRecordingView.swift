@@ -1,90 +1,150 @@
 #if os(watchOS)
+import Combine
 import SwiftUI
 
 struct WatchRecordingView: View {
     @Bindable var store: RecordingStore
     @State private var recorder = WatchAudioRecorder()
     @State private var transferManager = WatchTransferManager()
-    @State private var selectedRecordingId: UUID?
+    @State private var showList = false
 
     var body: some View {
         NavigationStack {
-            List {
-                // Recording controls at top
-                Section {
-                    recordButton
-                }
-
-                // Transfer status
-                if transferManager.isTransferring {
-                    Section {
-                        HStack(spacing: 8) {
-                            ProgressView(value: transferManager.transferProgress)
-                                .tint(MapleTheme.primary)
-                            Text("Sending…")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                // Recordings list
-                Section {
-                    ForEach(store.recordings) { recording in
-                        NavigationLink(value: recording.id) {
-                            WatchRecordingRow(recording: recording)
-                        }
-                    }
+            VStack(spacing: 0) {
+                if recorder.isRecording {
+                    recordingView
+                } else {
+                    idleView
                 }
             }
-            .navigationTitle("Maple")
-            .navigationDestination(for: UUID.self) { id in
-                WatchDetailView(store: store, recordingId: id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .navigationTitle("")
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showList) {
+                recordingsList
             }
         }
         .tint(MapleTheme.primary)
     }
 
-    @ViewBuilder
-    private var recordButton: some View {
-        if recorder.isRecording {
-            VStack(spacing: 6) {
-                // Audio level indicator
-                HStack(spacing: 2) {
-                    ForEach(0..<5, id: \.self) { i in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Float(i) / 5.0 < recorder.audioLevel
-                                  ? MapleTheme.primary
-                                  : MapleTheme.primary.opacity(0.2))
-                            .frame(width: 6, height: 12 + CGFloat(i) * 4)
-                    }
-                }
-                .frame(height: 32)
+    // MARK: - Idle State
 
-                Text(formatTime(recorder.elapsedTime))
-                    .font(.system(.body, design: .monospaced))
+    private var idleView: some View {
+        VStack(spacing: 16) {
+            Spacer()
 
-                Button {
-                    stopRecording()
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-            }
-        } else {
+            // Record button
             Button {
                 startRecording()
             } label: {
-                Label("Record", systemImage: "mic.fill")
-                    .frame(maxWidth: .infinity)
+                Circle()
+                    .fill(MapleTheme.primary)
+                    .frame(width: 80, height: 80)
+                    .overlay {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 30, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(MapleTheme.primary)
+            .buttonStyle(.plain)
+
+            Text("Tap to Record")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            // Recordings list button
+            if !store.recordings.isEmpty {
+                Button {
+                    showList = true
+                } label: {
+                    Label("\(store.recordings.count) Recordings", systemImage: "list.bullet")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 4)
+            }
+
+            // Transfer status
+            if transferManager.isTransferring {
+                HStack(spacing: 6) {
+                    ProgressView(value: transferManager.transferProgress)
+                        .tint(MapleTheme.primary)
+                        .frame(width: 60)
+                    Text("Sending…")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
+            }
         }
     }
+
+    // MARK: - Recording State
+
+    private var recordingView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+
+            // Stop button with pulsing rings behind it
+            ZStack {
+                // Animated rings
+                PulsingRings(audioLevel: recorder.audioLevel)
+
+                // Stop button
+                Button {
+                    stopRecording()
+                } label: {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 80, height: 80)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(.white)
+                                .frame(width: 28, height: 28)
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 140, height: 140)
+
+            // Elapsed time
+            Text(formatTime(recorder.elapsedTime))
+                .font(.system(.title3, design: .monospaced))
+                .foregroundStyle(.white)
+
+            Text("Recording")
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .textCase(.uppercase)
+                .tracking(1)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Recordings List
+
+    private var recordingsList: some View {
+        NavigationStack {
+            List {
+                ForEach(store.recordings) { recording in
+                    NavigationLink(value: recording.id) {
+                        WatchRecordingRow(recording: recording)
+                    }
+                }
+            }
+            .navigationTitle("Recordings")
+            .navigationDestination(for: UUID.self) { id in
+                WatchDetailView(store: store, recordingId: id)
+            }
+        }
+    }
+
+    // MARK: - Actions
 
     private func startRecording() {
         do {
@@ -101,7 +161,6 @@ struct WatchRecordingView: View {
         let title = "Watch \(now.formatted(date: .abbreviated, time: .shortened))"
         let fileName = url.lastPathComponent
 
-        // Save locally
         let destURL = StorageLocation.recordingsURL.appendingPathComponent(fileName)
         try? FileManager.default.copyItem(at: url, to: destURL)
 
@@ -113,7 +172,6 @@ struct WatchRecordingView: View {
         )
         try? store.save(recording)
 
-        // Transfer to iPhone for processing
         transferManager.transferRecording(
             fileURL: url,
             metadata: [
@@ -127,6 +185,57 @@ struct WatchRecordingView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Pulsing Rings
+
+private struct PulsingRings: View {
+    let audioLevel: Float
+
+    @State private var phase: Double = 0
+
+    private let timer = Timer.publish(every: 1.0 / 30, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { ring in
+                Circle()
+                    .stroke(
+                        MapleTheme.primary.opacity(ringOpacity(ring: ring)),
+                        lineWidth: 2
+                    )
+                    .frame(
+                        width: ringSize(ring: ring),
+                        height: ringSize(ring: ring)
+                    )
+                    .scaleEffect(ringScale(ring: ring))
+            }
+        }
+        .onReceive(timer) { _ in
+            phase += 0.05
+        }
+    }
+
+    private func ringSize(ring: Int) -> CGFloat {
+        let base: CGFloat = 90
+        let spacing: CGFloat = 16
+        return base + CGFloat(ring) * spacing
+    }
+
+    private func ringScale(ring: Int) -> CGFloat {
+        let level = CGFloat(min(max(audioLevel, 0), 1))
+        let offset = Double(ring) * 0.7
+        let pulse = sin(phase + offset) * 0.5 + 0.5
+        return 1.0 + level * 0.15 * pulse
+    }
+
+    private func ringOpacity(ring: Int) -> Double {
+        let level = Double(min(max(audioLevel, 0), 1))
+        let base = 0.15 + level * 0.5
+        let offset = Double(ring) * 0.7
+        let pulse = sin(phase + offset) * 0.5 + 0.5
+        return base * (1.0 - Double(ring) * 0.25) * (0.6 + 0.4 * pulse)
     }
 }
 

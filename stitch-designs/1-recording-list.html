@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Maple Recorder - Home</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#993629",
+                        "background-light": "#f8f6f6",
+                        "background-dark": "#1f1413",
+                        "stone-50": "#fbf9f9",
+                        "stone-100": "#f1eae9",
+                        "stone-200": "#e4d5d3",
+                        "stone-500": "#8d5f58",
+                        "stone-900": "#191110",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "rounded": ["SF Pro Rounded", "Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-stone-900 dark:text-stone-50 antialiased">
+<div class="relative flex h-screen w-full flex-col overflow-hidden max-w-md mx-auto shadow-2xl bg-stone-50 dark:bg-background-dark">
+<!-- Header -->
+<header class="sticky top-0 z-10 flex items-center justify-between bg-stone-50/80 dark:bg-background-dark/80 backdrop-blur-md px-6 py-5 border-b border-stone-100 dark:border-stone-900/50">
+<h1 class="text-2xl font-bold tracking-tight text-primary font-rounded">Maple Recorder</h1>
+<div class="flex gap-4">
+<button class="p-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-full transition-colors">
+<span class="material-symbols-outlined text-stone-500">search</span>
+</button>
+<button class="p-2 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-full transition-colors">
+<span class="material-symbols-outlined text-stone-500">settings</span>
+</button>
+</div>
+</header>
+<!-- Tabs -->
+<nav class="flex px-6 border-b border-stone-100 dark:border-stone-900/50 bg-stone-50 dark:bg-background-dark"><button class="py-4 px-2 border-b-2 border-primary text-stone-900 dark:text-stone-50 text-sm font-semibold tracking-wide">
+                All Recordings
+            </button>
+<button class="py-4 px-6 text-stone-500 dark:text-stone-400 text-sm font-medium hover:text-stone-700 transition-colors">
+                Tags
+            </button></nav>
+<!-- Recording List -->
+<main class="flex-1 overflow-y-auto pb-32">
+<!-- Recording Item 1 -->
+<div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Team Standup</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">3:42</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider"><span>Today, 10:00 AM</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">WORK</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">INTERNAL</span>
+</div></div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Discussed the new UI kit and timeline for the sprint, focusing on the mobile navigation components and theme integration.
+                </p>
+</div>
+<!-- Recording Item 2 -->
+<div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Design Review</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">12:15</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider"><span>Yesterday, 2:15 PM</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">DESIGN</span>
+</div></div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Review of the stone-toned palette and typography choices for the upcoming Maple Recorder update. Feedback was generally positive.
+                </p>
+</div>
+<!-- Recording Item 3 -->
+<div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Grocery List</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">0:45</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider"><span>Oct 24, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">PERSONAL</span>
+</div></div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Milk, eggs, sourdough bread, organic tomatoes, and some dark chocolate for the weekend project.
+                </p>
+</div>
+<!-- Recording Item 4 -->
+<div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Project Kickoff</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">24:30</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider"><span>Oct 22, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">STRATEGY</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">Q4</span>
+</div></div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Initial meeting regarding the Q4 expansion. Roles assigned to each team member and first milestone set for November.
+                </p>
+</div>
+<!-- Empty State Illustration (Hidden by default, showing how it would look) -->
+<!-- Uncomment to view empty state -->
+<!--
+            <div class="flex flex-col items-center justify-center py-20 px-10 text-center">
+                <div class="w-32 h-32 mb-6 bg-stone-100 dark:bg-stone-900 rounded-full flex items-center justify-center">
+                    <span class="material-symbols-outlined text-stone-300 dark:text-stone-700 text-6xl">mic_off</span>
+                </div>
+                <h3 class="text-xl font-bold text-stone-900 dark:text-stone-50 mb-2">No recordings yet</h3>
+                <p class="text-stone-500 dark:text-stone-400">Tap the red button below to start your first voice memo.</p>
+                <div class="mt-8">
+                    <span class="material-symbols-outlined text-primary animate-bounce">arrow_downward</span>
+                </div>
+            </div>
+            -->
+<div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Client Briefing</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">15:20</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider">
+<span>Oct 20, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">CLIENT</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">EXTERNAL</span>
+</div>
+</div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Detailed requirements gathering for the new dashboard redesign and integration with legacy APIs.
+                </p>
+</div><div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Weekly Sync</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">8:10</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider">
+<span>Oct 18, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">TEAM</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">RECURRING</span>
+</div>
+</div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Updates on the hiring process and budget approvals for the upcoming creative retreat.
+                </p>
+</div><div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Ideas for Q4</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">5:45</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider">
+<span>Oct 15, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">DRAFT</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">BRAINSTORM</span>
+</div>
+</div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Voice memo regarding potential marketing angles for the holiday season and new feature teasers.
+                </p>
+</div><div class="group px-6 py-5 border-b border-stone-100 dark:border-stone-900/30 hover:bg-stone-100/50 dark:hover:bg-stone-800/30 transition-colors cursor-pointer">
+<div class="flex justify-between items-start mb-1">
+<h3 class="text-lg font-semibold text-stone-900 dark:text-stone-50">Interview - Sarah</h3>
+<span class="text-sm font-medium text-stone-500 bg-stone-100 dark:bg-stone-800 px-2 py-1 rounded">42:00</span>
+</div>
+<div class="flex items-center gap-2 mb-2 text-xs font-medium text-stone-500 uppercase tracking-wider">
+<span>Oct 12, 2023</span>
+<span class="size-1 bg-stone-300 dark:bg-stone-700 rounded-full"></span>
+<div class="flex gap-1.5">
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">HIRING</span>
+<span class="px-2 py-0.5 bg-stone-100 dark:bg-stone-800 rounded-full text-[10px] font-bold">URGENT</span>
+</div>
+</div>
+<p class="text-sm text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                    Candidate review for the Senior Designer position. Strong portfolio and good cultural fit.
+                </p>
+</div></main>
+<!-- Floating Action Button -->
+<div class="absolute bottom-10 left-1/2 -translate-x-1/2 z-20">
+<button class="flex items-center justify-center size-20 bg-primary text-white rounded-full shadow-xl shadow-primary/30 hover:scale-105 active:scale-95 transition-all duration-200 ring-4 ring-white dark:ring-stone-900">
+<span class="material-symbols-outlined text-4xl fill-icon">mic</span>
+</button>
+</div>
+<!-- Navigation Bar -->
+</div>
+</body></html>
