@@ -2,6 +2,11 @@ import AVFoundation
 import Foundation
 import Observation
 
+struct RecordingResult {
+    var micURLs: [URL]
+    var systemURLs: [URL]
+}
+
 @Observable
 final class AudioRecorder {
     var isRecording = false
@@ -12,12 +17,22 @@ final class AudioRecorder {
     #if os(macOS)
     var includeSystemAudio = false
     private var systemCapture = SystemAudioCapture()
-    private var mixer = AudioMixer()
     #endif
 
     private var audioEngine: AVAudioEngine?
-    private var outputFile: AVAudioFile?
     private var timer: Timer?
+
+    // Serial queue for all file writes — eliminates concurrent access to AVAudioFile
+    private let writeQueue = DispatchQueue(label: "com.maple.audioWriter", qos: .userInteractive)
+
+    // Mic output (written on writeQueue)
+    private var outputFile: AVAudioFile?
+
+    #if os(macOS)
+    // System audio output (written on writeQueue)
+    private var systemOutputFile: AVAudioFile?
+    private var systemChunkURLs: [URL] = []
+    #endif
 
     // Chunking state
     private var recordingId: UUID?
@@ -57,18 +72,29 @@ final class AudioRecorder {
         self.chunkDurationMinutes = chunkDurationMinutes
         self.chunkURLs = []
         self.chunkIndex = 0
+        #if os(macOS)
+        self.systemChunkURLs = []
+        #endif
 
-        let url = try createChunkFile()
+        // Create initial chunk file on writeQueue to ensure serial access
+        let url: URL = try writeQueue.sync {
+            try createMicChunkFileOnQueue()
+        }
 
         #if os(macOS)
         if includeSystemAudio {
+            try writeQueue.sync {
+                try createSystemChunkFileOnQueue()
+            }
             try await startSystemAudioCapture()
         }
         #endif
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self else { return }
-            self.writeBuffer(buffer)
+            self.writeQueue.async {
+                self.writeMicBufferOnQueue(buffer)
+            }
         }
 
         try engine.start()
@@ -88,14 +114,23 @@ final class AudioRecorder {
         return url
     }
 
-    func stopRecording() -> [URL] {
+    func stopRecording() -> RecordingResult {
         timer?.invalidate()
         timer = nil
 
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
-        outputFile = nil
+
+        // Drain the write queue to ensure all pending writes complete,
+        // then nil out the files so no further writes occur.
+        writeQueue.sync {
+            outputFile = nil
+            #if os(macOS)
+            systemOutputFile = nil
+            #endif
+        }
+
         isRecording = false
         audioLevel = 0
         amplitudeSamples = []
@@ -106,15 +141,18 @@ final class AudioRecorder {
         Task {
             await systemCapture.stopCapture()
         }
+        let result = RecordingResult(micURLs: chunkURLs, systemURLs: systemChunkURLs)
+        #else
+        let result = RecordingResult(micURLs: chunkURLs, systemURLs: [])
         #endif
 
-        return chunkURLs
+        return result
     }
 
-    // MARK: - Buffer Writing
+    // MARK: - Buffer Writing (called on writeQueue)
 
-    private func writeBuffer(_ buffer: AVAudioPCMBuffer) {
-        try? self.outputFile?.write(from: buffer)
+    private func writeMicBufferOnQueue(_ buffer: AVAudioPCMBuffer) {
+        try? outputFile?.write(from: buffer)
 
         // Calculate RMS for audio level
         guard let channelData = buffer.floatChannelData?[0] else { return }
@@ -141,6 +179,12 @@ final class AudioRecorder {
         }
     }
 
+    #if os(macOS)
+    private func writeSystemBufferOnQueue(_ buffer: AVAudioPCMBuffer) {
+        try? systemOutputFile?.write(from: buffer)
+    }
+    #endif
+
     // MARK: - macOS System Audio
 
     #if os(macOS)
@@ -150,10 +194,12 @@ final class AudioRecorder {
             throw SystemAudioCaptureError.permissionDenied
         }
 
-        // System audio buffers get written to the file too
+        // System audio buffers get written to their own file via writeQueue
         systemCapture.onAudioBuffer = { [weak self] buffer in
             guard let self else { return }
-            try? self.outputFile?.write(from: buffer)
+            self.writeQueue.async {
+                self.writeSystemBufferOnQueue(buffer)
+            }
         }
 
         try await systemCapture.startCapture()
@@ -195,19 +241,35 @@ final class AudioRecorder {
     }
 
     private func performChunkSplit() {
-        outputFile = nil
         isSplitSeeking = false
         silenceStartTime = nil
         chunkStartTime = Date()
 
-        do {
-            _ = try createChunkFile()
-        } catch {
-            print("Failed to create new chunk: \(error)")
+        writeQueue.async { [weak self] in
+            guard let self else { return }
+            // Close current files
+            self.outputFile = nil
+            #if os(macOS)
+            self.systemOutputFile = nil
+            #endif
+
+            do {
+                try self.createMicChunkFileOnQueue()
+                #if os(macOS)
+                if self.includeSystemAudio {
+                    try self.createSystemChunkFileOnQueue()
+                }
+                #endif
+            } catch {
+                print("Failed to create new chunk: \(error)")
+            }
         }
     }
 
-    private func createChunkFile() throws -> URL {
+    // MARK: - Chunk File Creation (called on writeQueue)
+
+    @discardableResult
+    private func createMicChunkFileOnQueue() throws -> URL {
         guard let inputFormat, let recordingId else {
             throw NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not initialized"])
         }
@@ -226,6 +288,17 @@ final class AudioRecorder {
                     try? FileManager.default.moveItem(at: oldURL, to: newURL)
                     chunkURLs[0] = newURL
                 }
+                #if os(macOS)
+                // Also rename system chunk if it exists
+                if systemChunkURLs.count == 1 {
+                    let oldSysURL = systemChunkURLs[0]
+                    let newSysURL = tempDir.appendingPathComponent("\(baseName)_sys.m4a")
+                    if oldSysURL.lastPathComponent != newSysURL.lastPathComponent {
+                        try? FileManager.default.moveItem(at: oldSysURL, to: newSysURL)
+                        systemChunkURLs[0] = newSysURL
+                    }
+                }
+                #endif
             }
             fileName = "\(baseName)_part\(chunkURLs.count + 1).m4a"
         }
@@ -244,4 +317,46 @@ final class AudioRecorder {
 
         return url
     }
+
+    #if os(macOS)
+    @discardableResult
+    private func createSystemChunkFileOnQueue() throws -> URL {
+        guard let recordingId else {
+            throw NSError(domain: "AudioRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Not initialized"])
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let baseName = recordingId.uuidString
+        let fileName: String
+        if systemChunkURLs.isEmpty {
+            fileName = "\(baseName)_sys.m4a"
+        } else {
+            // Rename first system chunk if this is the second chunk
+            if systemChunkURLs.count == 1 {
+                let oldURL = systemChunkURLs[0]
+                let newURL = tempDir.appendingPathComponent("\(baseName)_sys_part1.m4a")
+                if oldURL.lastPathComponent != newURL.lastPathComponent {
+                    try? FileManager.default.moveItem(at: oldURL, to: newURL)
+                    systemChunkURLs[0] = newURL
+                }
+            }
+            fileName = "\(baseName)_sys_part\(systemChunkURLs.count + 1).m4a"
+        }
+        let url = tempDir.appendingPathComponent(fileName)
+
+        // System audio: 48kHz mono Float32 (matches SCStream output)
+        let systemFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: outputSettings,
+            commonFormat: systemFormat.commonFormat,
+            interleaved: systemFormat.isInterleaved
+        )
+
+        self.systemOutputFile = file
+        systemChunkURLs.append(url)
+
+        return url
+    }
+    #endif
 }

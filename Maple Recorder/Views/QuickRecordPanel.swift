@@ -381,8 +381,8 @@ struct QuickRecordView: View {
 
     private func saveAndNotify() {
         let duration = recorder.elapsedTime
-        let urls = recorder.stopRecording()
-        guard !urls.isEmpty else { return }
+        let result = recorder.stopRecording()
+        guard !result.micURLs.isEmpty else { return }
 
         let now = Date()
         let formatter = DateFormatter()
@@ -391,16 +391,25 @@ struct QuickRecordView: View {
         let title = "Recording \(formatter.string(from: now))"
 
         var audioFileNames: [String] = []
-        for url in urls {
+        for url in result.micURLs {
             let fileName = url.lastPathComponent
             let destURL = StorageLocation.recordingsURL.appendingPathComponent(fileName)
             try? FileManager.default.copyItem(at: url, to: destURL)
             audioFileNames.append(fileName)
         }
 
+        var systemAudioFileNames: [String] = []
+        for url in result.systemURLs {
+            let fileName = url.lastPathComponent
+            let destURL = StorageLocation.recordingsURL.appendingPathComponent(fileName)
+            try? FileManager.default.copyItem(at: url, to: destURL)
+            systemAudioFileNames.append(fileName)
+        }
+
         let recording = MapleRecording(
             title: title,
             audioFiles: audioFileNames,
+            systemAudioFiles: systemAudioFileNames,
             createdAt: now,
             modifiedAt: now
         )

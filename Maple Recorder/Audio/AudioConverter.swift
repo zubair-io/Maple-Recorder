@@ -18,5 +18,18 @@ enum MapleAudioConverter {
         }
         return allSamples
     }
+
+    /// Mix two sample arrays by addition, clamped to [-1, 1].
+    /// If lengths differ, the shorter one is zero-padded.
+    static func mixSamples(_ a: [Float], _ b: [Float], levelA: Float = 1.0, levelB: Float = 0.7) -> [Float] {
+        let count = max(a.count, b.count)
+        var result = [Float](repeating: 0, count: count)
+        for i in 0..<count {
+            let va = i < a.count ? a[i] * levelA : 0
+            let vb = i < b.count ? b[i] * levelB : 0
+            result[i] = max(-1.0, min(1.0, va + vb))
+        }
+        return result
+    }
 }
 #endif

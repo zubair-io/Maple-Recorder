@@ -12,6 +12,7 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable {
     private var stream: SCStream?
     private var streamOutput: AudioStreamOutput?
     private(set) var audioFormat: AVAudioFormat?
+    private let sampleQueue = DispatchQueue(label: "com.maple.systemAudioCapture", qos: .userInteractive)
 
     /// Callback invoked on each captured audio buffer
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
@@ -49,16 +50,18 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable {
         config.channelCount = 1
 
         let output = AudioStreamOutput { [weak self] buffer in
+            if self?.audioFormat == nil {
+                self?.audioFormat = buffer.format
+            }
             self?.onAudioBuffer?(buffer)
         }
         self.streamOutput = output
 
         let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: .global(qos: .userInteractive))
+        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
 
         self.stream = stream
-        self.audioFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)
         self.isCapturing = true
     }
 

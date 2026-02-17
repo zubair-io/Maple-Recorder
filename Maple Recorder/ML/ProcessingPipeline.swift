@@ -20,6 +20,7 @@ final class ProcessingPipeline {
 
     func process(
         audioURLs: [URL],
+        systemAudioURLs: [URL] = [],
         transcriptionManager: TranscriptionManager,
         diarizationManager: DiarizationManager,
         summarizationProvider: LLMProvider = .none
@@ -27,26 +28,60 @@ final class ProcessingPipeline {
         do {
             state = .converting
             progress = "Converting audio…"
-            let samples: [Float]
+            let micSamples: [Float]
             if audioURLs.count == 1 {
-                samples = try MapleAudioConverter.loadAndResample(url: audioURLs[0])
+                micSamples = try MapleAudioConverter.loadAndResample(url: audioURLs[0])
             } else {
-                samples = try MapleAudioConverter.loadAndResampleChunks(urls: audioURLs)
+                micSamples = try MapleAudioConverter.loadAndResampleChunks(urls: audioURLs)
+            }
+
+            // Load system audio samples if present
+            let systemSamples: [Float]
+            if !systemAudioURLs.isEmpty {
+                systemSamples = try MapleAudioConverter.loadAndResampleChunks(urls: systemAudioURLs)
+            } else {
+                systemSamples = []
             }
 
             state = .transcribing
             progress = "Transcribing…"
 
-            async let asrResult = transcriptionManager.transcribe(samples)
-            async let diaResult = diarizationManager.diarize(samples)
+            let asrSegments: [RawASRSegment]
+            let diaSegments: [RawDiarizationSegment]
 
-            let (asr, dia) = try await (asrResult, diaResult)
+            if systemSamples.isEmpty {
+                // Mic-only path — same as before
+                async let asrResult = transcriptionManager.transcribe(micSamples)
+                async let diaResult = diarizationManager.diarize(micSamples)
+
+                let (asr, dia) = try await (asrResult, diaResult)
+                asrSegments = mapASRResult(asr)
+                diaSegments = mapDiarizationResult(dia)
+            } else {
+                // Two-track path: mix for ASR, diarize each track independently
+                let combinedSamples = MapleAudioConverter.mixSamples(micSamples, systemSamples)
+
+                async let asrResult = transcriptionManager.transcribe(combinedSamples)
+                async let micDiaResult = diarizationManager.diarize(micSamples)
+                async let sysDiaResult = diarizationManager.diarize(systemSamples)
+
+                let (asr, micDia, sysDia) = try await (asrResult, micDiaResult, sysDiaResult)
+
+                asrSegments = mapASRResult(asr)
+
+                // Namespace speaker IDs so mic and system speakers never merge
+                let micDiaSegments = mapDiarizationResult(micDia).map { seg in
+                    RawDiarizationSegment(speakerId: "mic_\(seg.speakerId)", start: seg.start, end: seg.end)
+                }
+                let sysDiaSegments = mapDiarizationResult(sysDia).map { seg in
+                    RawDiarizationSegment(speakerId: "sys_\(seg.speakerId)", start: seg.start, end: seg.end)
+                }
+                diaSegments = micDiaSegments + sysDiaSegments
+            }
 
             state = .merging
             progress = "Aligning transcript…"
 
-            let asrSegments = mapASRResult(asr)
-            let diaSegments = mapDiarizationResult(dia)
             let merged = TranscriptMerger.merge(asrSegments: asrSegments, diarizationSegments: diaSegments)
 
             // Summarize and generate title if provider is configured

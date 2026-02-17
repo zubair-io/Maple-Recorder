@@ -181,10 +181,11 @@ struct RecordingDetailView: View {
             #endif
             .task {
                 // Pre-load audio only if files are already downloaded locally
-                let urls = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-                let allLocal = urls.allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
-                if allLocal && !urls.isEmpty {
-                    loadAudioSync(urls: urls)
+                let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+                let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+                let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
+                if allLocal && !micURLs.isEmpty {
+                    loadAudioSync(recording: recording)
                 }
             }
         } else {
@@ -496,31 +497,40 @@ struct RecordingDetailView: View {
     // MARK: - Audio
 
     /// Load audio synchronously — only call when files are known to be local.
-    private func loadAudioSync(urls: [URL]) {
-        if urls.count == 1 {
-            try? player.load(url: urls[0])
-        } else if urls.count > 1 {
-            try? player.loadChunks(urls: urls)
+    private func loadAudioSync(recording: MapleRecording) {
+        let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+
+        if systemURLs.isEmpty {
+            if micURLs.count == 1 {
+                try? player.load(url: micURLs[0])
+            } else if micURLs.count > 1 {
+                try? player.loadChunks(urls: micURLs)
+            }
+        } else {
+            try? player.loadWithSystemTracks(micURLs: micURLs, systemURLs: systemURLs)
         }
         audioLoaded = true
     }
 
     /// Download from iCloud if needed, then load and auto-play.
     private func loadAudioOnDemand(recording: MapleRecording) async {
-        let urls = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-        guard !urls.isEmpty else { return }
+        let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let allURLs = micURLs + systemURLs
+        guard !micURLs.isEmpty else { return }
 
         isLoadingAudio = true
         defer { isLoadingAudio = false }
 
         do {
-            try await ICloudFileDownloader.ensureAllDownloaded(urls: urls)
+            try await ICloudFileDownloader.ensureAllDownloaded(urls: allURLs)
         } catch {
             print("Failed to download audio from iCloud: \(error)")
             return
         }
 
-        loadAudioSync(urls: urls)
+        loadAudioSync(recording: recording)
         player.play()
         syncEngine.start(player: player, transcript: recording.transcript)
     }

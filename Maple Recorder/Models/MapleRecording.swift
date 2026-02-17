@@ -5,6 +5,7 @@ struct MapleRecording: Identifiable, Sendable {
     var title: String
     var summary: String
     var audioFiles: [String]
+    var systemAudioFiles: [String]
     var duration: TimeInterval
     var createdAt: Date
     var modifiedAt: Date
@@ -18,6 +19,7 @@ struct MapleRecording: Identifiable, Sendable {
         title: String,
         summary: String = "",
         audioFiles: [String] = [],
+        systemAudioFiles: [String] = [],
         duration: TimeInterval = 0,
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
@@ -30,6 +32,7 @@ struct MapleRecording: Identifiable, Sendable {
         self.title = title
         self.summary = summary
         self.audioFiles = audioFiles
+        self.systemAudioFiles = systemAudioFiles
         self.duration = duration
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
@@ -46,6 +49,7 @@ extension MapleRecording {
     struct MetadataJSON: Codable {
         var id: UUID
         var audio: [String]
+        var systemAudio: [String]
         var duration: TimeInterval
         var createdAt: Date
         var modifiedAt: Date
@@ -56,6 +60,7 @@ extension MapleRecording {
 
         enum CodingKeys: String, CodingKey {
             case id, audio, duration, speakers, transcript, tags
+            case systemAudio = "system_audio"
             case createdAt = "created_at"
             case modifiedAt = "modified_at"
             case promptResults = "prompt_results"
@@ -64,6 +69,7 @@ extension MapleRecording {
         init(
             id: UUID,
             audio: [String],
+            systemAudio: [String] = [],
             duration: TimeInterval,
             createdAt: Date,
             modifiedAt: Date,
@@ -74,6 +80,7 @@ extension MapleRecording {
         ) {
             self.id = id
             self.audio = audio
+            self.systemAudio = systemAudio
             self.duration = duration
             self.createdAt = createdAt
             self.modifiedAt = modifiedAt
@@ -87,6 +94,7 @@ extension MapleRecording {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(UUID.self, forKey: .id)
             audio = try container.decode([String].self, forKey: .audio)
+            systemAudio = try container.decodeIfPresent([String].self, forKey: .systemAudio) ?? []
             duration = try container.decode(TimeInterval.self, forKey: .duration)
             createdAt = try container.decode(Date.self, forKey: .createdAt)
             modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
@@ -101,6 +109,7 @@ extension MapleRecording {
         MetadataJSON(
             id: id,
             audio: audioFiles,
+            systemAudio: systemAudioFiles,
             duration: duration,
             createdAt: createdAt,
             modifiedAt: modifiedAt,
@@ -116,6 +125,7 @@ extension MapleRecording {
         self.title = title
         self.summary = summary
         self.audioFiles = metadata.audio
+        self.systemAudioFiles = metadata.systemAudio
         self.duration = metadata.duration
         self.createdAt = metadata.createdAt
         self.modifiedAt = metadata.modifiedAt

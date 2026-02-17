@@ -87,6 +87,13 @@ final class RecordingStore {
             }
         }
 
+        for audioFile in recording.systemAudioFiles {
+            let audioURL = recordingsURL.appendingPathComponent(audioFile)
+            if fileManager.fileExists(atPath: audioURL.path()) {
+                try fileManager.removeItem(at: audioURL)
+            }
+        }
+
         recordings.removeAll { $0.id == recording.id }
     }
 
@@ -105,8 +112,10 @@ final class RecordingStore {
         summarizationProvider: LLMProvider = .none
     ) async throws {
         let audioURLs = recording.audioFiles.map { recordingsURL.appendingPathComponent($0) }
+        let systemAudioURLs = recording.systemAudioFiles.map { recordingsURL.appendingPathComponent($0) }
         let result = try await pipeline.process(
             audioURLs: audioURLs,
+            systemAudioURLs: systemAudioURLs,
             transcriptionManager: transcription,
             diarizationManager: diarization,
             summarizationProvider: summarizationProvider
