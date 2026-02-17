@@ -11,6 +11,7 @@ final class RecordingStore {
     private let fileManager = FileManager.default
 
     init() {
+        StorageLocation.migrateLocalToICloudIfNeeded()
         try? StorageLocation.ensureDirectoryExists()
         loadRecordings()
     }
@@ -33,16 +34,24 @@ final class RecordingStore {
     func loadRecordings() {
         guard let files = try? fileManager.contentsOfDirectory(
             at: recordingsURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .ubiquitousItemDownloadingStatusKey],
             options: .skipsHiddenFiles
         ) else {
             recordings = []
             return
         }
 
-        recordings = files
-            .filter { $0.pathExtension == "md" }
+        let mdFiles = files.filter { $0.pathExtension == "md" }
+
+        recordings = mdFiles
             .compactMap { url -> MapleRecording? in
+                // Skip iCloud placeholders — don't block waiting for download
+                if !ICloudFileDownloader.isDownloaded(url: url) {
+                    // Kick off download in background; ICloudSyncMonitor will
+                    // trigger a reload once the file arrives.
+                    try? fileManager.startDownloadingUbiquitousItem(at: url)
+                    return nil
+                }
                 guard let data = try? Data(contentsOf: url),
                       let markdown = String(data: data, encoding: .utf8) else {
                     return nil

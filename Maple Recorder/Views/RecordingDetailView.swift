@@ -7,6 +7,8 @@ struct RecordingDetailView: View {
     @State private var syncEngine = PlaybackSyncEngine()
     @State private var editingSpeaker: Speaker?
     @State private var activeTab: DetailTab = .summary
+    @State private var isLoadingAudio = false
+    @State private var audioLoaded = false
 
     #if !os(watchOS)
     var processingPipeline: ProcessingPipeline?
@@ -59,20 +61,37 @@ struct RecordingDetailView: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     if !recording.audioFiles.isEmpty {
-                        PlaybackBar(
-                            player: player,
-                            onToggle: {
-                                player.togglePlayPause()
-                                if player.isPlaying {
-                                    syncEngine.start(player: player, transcript: recording.transcript)
-                                } else {
-                                    syncEngine.stop()
-                                }
-                            },
-                            onSeek: { time in
-                                player.seek(to: time)
+                        if isLoadingAudio {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Downloading audio…")
+                                    .font(.caption)
+                                    .foregroundStyle(MapleTheme.textSecondary)
                             }
-                        )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(MapleTheme.surface)
+                        } else {
+                            PlaybackBar(
+                                player: player,
+                                onToggle: {
+                                    if !audioLoaded {
+                                        Task { await loadAudioOnDemand(recording: recording) }
+                                        return
+                                    }
+                                    player.togglePlayPause()
+                                    if player.isPlaying {
+                                        syncEngine.start(player: player, transcript: recording.transcript)
+                                    } else {
+                                        syncEngine.stop()
+                                    }
+                                },
+                                onSeek: { time in
+                                    player.seek(to: time)
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -160,8 +179,13 @@ struct RecordingDetailView: View {
                 }
             }
             #endif
-            .onAppear {
-                loadAudio(recording: recording)
+            .task {
+                // Pre-load audio only if files are already downloaded locally
+                let urls = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+                let allLocal = urls.allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
+                if allLocal && !urls.isEmpty {
+                    loadAudioSync(urls: urls)
+                }
             }
         } else {
             ContentUnavailableView(
@@ -471,13 +495,34 @@ struct RecordingDetailView: View {
 
     // MARK: - Audio
 
-    private func loadAudio(recording: MapleRecording) {
-        let urls = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+    /// Load audio synchronously — only call when files are known to be local.
+    private func loadAudioSync(urls: [URL]) {
         if urls.count == 1 {
             try? player.load(url: urls[0])
         } else if urls.count > 1 {
             try? player.loadChunks(urls: urls)
         }
+        audioLoaded = true
+    }
+
+    /// Download from iCloud if needed, then load and auto-play.
+    private func loadAudioOnDemand(recording: MapleRecording) async {
+        let urls = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        guard !urls.isEmpty else { return }
+
+        isLoadingAudio = true
+        defer { isLoadingAudio = false }
+
+        do {
+            try await ICloudFileDownloader.ensureAllDownloaded(urls: urls)
+        } catch {
+            print("Failed to download audio from iCloud: \(error)")
+            return
+        }
+
+        loadAudioSync(urls: urls)
+        player.play()
+        syncEngine.start(player: player, transcript: recording.transcript)
     }
 
     // MARK: - Helpers

@@ -3,14 +3,23 @@ import Foundation
 enum StorageLocation {
     private static let iCloudContainerId = "iCloud.com.just.maple.Maple-Recorder"
 
+    /// Whether iCloud Drive is available for this app.
+    static var isICloudAvailable: Bool {
+        FileManager.default.url(forUbiquityContainerIdentifier: iCloudContainerId) != nil
+    }
+
     static var recordingsURL: URL {
         if let iCloudURL = FileManager.default
             .url(forUbiquityContainerIdentifier: iCloudContainerId)?
             .appendingPathComponent("Documents").appendingPathComponent("recordings") {
             return iCloudURL
         }
-        // Local fallback when iCloud is unavailable
-        return FileManager.default
+        return localRecordingsURL
+    }
+
+    /// The sandbox-local recordings path, used when iCloud is unavailable.
+    static var localRecordingsURL: URL {
+        FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("recordings")
     }
@@ -20,5 +29,42 @@ enum StorageLocation {
         if !FileManager.default.fileExists(atPath: url.path()) {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
+    }
+
+    /// Migrates any recordings from the local sandbox folder into iCloud Drive.
+    /// Call once at startup after iCloud becomes available.
+    static func migrateLocalToICloudIfNeeded() {
+        guard isICloudAvailable else { return }
+
+        let localURL = localRecordingsURL
+        let iCloudURL = recordingsURL
+
+        // Nothing to migrate if same path or local folder doesn't exist
+        guard localURL != iCloudURL,
+              FileManager.default.fileExists(atPath: localURL.path()) else { return }
+
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: localURL,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        ), !files.isEmpty else { return }
+
+        // Ensure iCloud destination exists
+        if !FileManager.default.fileExists(atPath: iCloudURL.path()) {
+            try? FileManager.default.createDirectory(at: iCloudURL, withIntermediateDirectories: true)
+        }
+
+        for file in files {
+            let dest = iCloudURL.appendingPathComponent(file.lastPathComponent)
+            // Skip if a file with the same name already exists in iCloud
+            guard !FileManager.default.fileExists(atPath: dest.path()) else { continue }
+            do {
+                try FileManager.default.moveItem(at: file, to: dest)
+            } catch {
+                print("Migration: Failed to move \(file.lastPathComponent) to iCloud: \(error)")
+            }
+        }
+
+        print("Migration: Moved \(files.count) file(s) from local sandbox to iCloud Drive")
     }
 }
