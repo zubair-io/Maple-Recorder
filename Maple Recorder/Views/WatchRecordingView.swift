@@ -89,27 +89,24 @@ struct WatchRecordingView: View {
         VStack(spacing: 12) {
             Spacer()
 
-            // Stop button with pulsing rings behind it
+            // Stop button with pulsing waveform behind it
             ZStack {
-                // Animated rings
-                PulsingRings(audioLevel: recorder.audioLevel)
+                PulsingWaveform(audioLevel: recorder.audioLevel)
 
-                // Stop button
                 Button {
                     stopRecording()
                 } label: {
                     Circle()
                         .fill(.red)
-                        .frame(width: 80, height: 80)
+                        .frame(width: 56, height: 56)
                         .overlay {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(.white)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 22, height: 22)
                         }
                 }
                 .buttonStyle(.plain)
             }
-            .frame(width: 140, height: 140)
 
             // Elapsed time
             Text(formatTime(recorder.elapsedTime))
@@ -185,57 +182,6 @@ struct WatchRecordingView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
-    }
-}
-
-// MARK: - Pulsing Rings
-
-private struct PulsingRings: View {
-    let audioLevel: Float
-
-    @State private var phase: Double = 0
-
-    private let timer = Timer.publish(every: 1.0 / 30, on: .main, in: .common).autoconnect()
-
-    var body: some View {
-        ZStack {
-            ForEach(0..<3, id: \.self) { ring in
-                Circle()
-                    .stroke(
-                        MapleTheme.primary.opacity(ringOpacity(ring: ring)),
-                        lineWidth: 2
-                    )
-                    .frame(
-                        width: ringSize(ring: ring),
-                        height: ringSize(ring: ring)
-                    )
-                    .scaleEffect(ringScale(ring: ring))
-            }
-        }
-        .onReceive(timer) { _ in
-            phase += 0.05
-        }
-    }
-
-    private func ringSize(ring: Int) -> CGFloat {
-        let base: CGFloat = 90
-        let spacing: CGFloat = 16
-        return base + CGFloat(ring) * spacing
-    }
-
-    private func ringScale(ring: Int) -> CGFloat {
-        let level = CGFloat(min(max(audioLevel, 0), 1))
-        let offset = Double(ring) * 0.7
-        let pulse = sin(phase + offset) * 0.5 + 0.5
-        return 1.0 + level * 0.15 * pulse
-    }
-
-    private func ringOpacity(ring: Int) -> Double {
-        let level = Double(min(max(audioLevel, 0), 1))
-        let base = 0.15 + level * 0.5
-        let offset = Double(ring) * 0.7
-        let pulse = sin(phase + offset) * 0.5 + 0.5
-        return base * (1.0 - Double(ring) * 0.45) * (0.6 + 0.4 * pulse)
     }
 }
 

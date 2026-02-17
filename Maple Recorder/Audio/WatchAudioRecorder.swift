@@ -51,8 +51,14 @@ final class WatchAudioRecorder: NSObject, AVAudioRecorderDelegate, @unchecked Se
             // Convert dB to linear (0-1 range)
             let linear = max(0, min(1, (power + 50) / 50))
             Task { @MainActor [weak self] in
-                self?.audioLevel = linear
-                self?.elapsedTime = Date().timeIntervalSince(startTime)
+                guard let self else { return }
+                let current = self.audioLevel
+                if linear > current {
+                    self.audioLevel = current * 0.3 + linear * 0.7
+                } else {
+                    self.audioLevel = current * 0.85 + linear * 0.15
+                }
+                self.elapsedTime = Date().timeIntervalSince(startTime)
             }
         }
 

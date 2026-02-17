@@ -127,7 +127,15 @@ final class AudioRecorder {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.audioLevel = rms
+            // Normalize RMS to 0–1 range visible for UI (raw mic RMS is ~0.001–0.05)
+            let target = min(rms * 8, 1.0)
+            if target > self.audioLevel {
+                // Rise quickly to follow speech
+                self.audioLevel = self.audioLevel * 0.3 + target * 0.7
+            } else {
+                // Decay slowly for smooth fade-out
+                self.audioLevel = self.audioLevel * 0.85 + target * 0.15
+            }
             self.amplitudeSamples.append(min(rms * 3, 1.0))
             self.checkChunkBoundary(rms: rms)
         }

@@ -5,6 +5,9 @@ import Observation
 final class RecordingStore {
     var recordings: [MapleRecording] = []
 
+    /// Set by quick record to tell the main UI which recording to select.
+    var pendingSelectionId: UUID?
+
     private let fileManager = FileManager.default
 
     init() {

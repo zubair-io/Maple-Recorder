@@ -1,16 +1,17 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import UserNotifications
 
 // MARK: - Floating NSPanel
 
 final class FloatingRecordPanel: NSPanel {
-    private let onClose: () -> Void
+    var onResignKey: (() -> Void)?
+    var onCancelOperation: (() -> Void)?
 
-    init<Content: View>(content: @escaping () -> Content, onClose: @escaping () -> Void) {
-        self.onClose = onClose
+    init<Content: View>(content: @escaping () -> Content) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 80),
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
             styleMask: [.borderless, .nonactivatingPanel, .titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -22,7 +23,7 @@ final class FloatingRecordPanel: NSPanel {
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
-        hidesOnDeactivate = true
+        hidesOnDeactivate = false
         animationBehavior = .utilityWindow
         backgroundColor = .clear
         isOpaque = false
@@ -36,19 +37,14 @@ final class FloatingRecordPanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        close()
-    }
-
-    override func close() {
-        super.close()
-        onClose()
+        onResignKey?()
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     override func cancelOperation(_ sender: Any?) {
-        close()
+        onCancelOperation?()
     }
 }
 
@@ -62,13 +58,76 @@ final class QuickRecordController {
     var modelManager: ModelManager?
     var settingsManager: SettingsManager?
 
+    var isDocked = false
+    var includeSystemAudio = false
     var isOpen: Bool { panel != nil }
+
+    /// Callback set by QuickRecordView so the controller can stop recording on dismiss.
+    var stopRecordingHandler: (() -> Void)?
+
+
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
+
+    // MARK: - Global Hotkey
+
+    func registerGlobalHotkey() {
+        promptAccessibilityIfNeeded()
+
+        // Catches ⌃. and ⌃/ when app is NOT focused (requires Accessibility permission)
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.contains(.control) else { return }
+            if event.keyCode == 47 { // Period
+                Task { @MainActor in self?.toggle() }
+            } else if event.keyCode == 44 { // Slash
+                Task { @MainActor in self?.toggleWithSystemAudio() }
+            }
+        }
+        // Catches ⌃. and ⌃/ when app IS focused
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.contains(.control) else { return event }
+            if event.keyCode == 47 {
+                Task { @MainActor in self?.toggle() }
+                return nil
+            } else if event.keyCode == 44 {
+                Task { @MainActor in self?.toggleWithSystemAudio() }
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func promptAccessibilityIfNeeded() {
+        let trusted = AXIsProcessTrusted()
+        if !trusted {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+        }
+    }
+
+    func unregisterGlobalHotkey() {
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        globalMonitor = nil
+        localMonitor = nil
+    }
+
+    // MARK: - State Transitions
 
     func toggle() {
         if panel != nil {
-            panel?.close()
-            panel = nil
+            dismiss()
         } else {
+            includeSystemAudio = false
+            open()
+        }
+    }
+
+    func toggleWithSystemAudio() {
+        if panel != nil {
+            dismiss()
+        } else {
+            includeSystemAudio = true
             open()
         }
     }
@@ -77,37 +136,134 @@ final class QuickRecordController {
         guard panel == nil else { return }
         guard let store, let modelManager, let settingsManager else { return }
 
-        let newPanel = FloatingRecordPanel(
-            content: { [weak self] in
-                QuickRecordView(
-                    store: store,
-                    modelManager: modelManager,
-                    settingsManager: settingsManager,
-                    onDismiss: { self?.dismiss() }
-                )
-            },
-            onClose: { [weak self] in self?.panel = nil }
-        )
-
-        // Center horizontally, position in upper third of screen
-        if let screen = NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            let panelWidth: CGFloat = 480
-            let panelHeight: CGFloat = 80
-            let x = screenFrame.midX - panelWidth / 2
-            let y = screenFrame.maxY - panelHeight - screenFrame.height * 0.25
-            newPanel.setFrame(NSRect(x: x, y: y, width: panelWidth, height: panelHeight), display: true)
+        let controller = self
+        let newPanel = FloatingRecordPanel {
+            QuickRecordView(
+                store: store,
+                modelManager: modelManager,
+                settingsManager: settingsManager,
+                controller: controller
+            )
         }
 
-        NSApplication.shared.activate()
+        newPanel.onResignKey = { [weak self] in
+            self?.dock()
+        }
+        newPanel.onCancelOperation = { [weak self] in
+            self?.dismiss()
+        }
+
+        // Center 200×200 on screen
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let size: CGFloat = 200
+            let x = screenFrame.midX - size / 2
+            let y = screenFrame.midY - size / 2
+            newPanel.setFrame(NSRect(x: x, y: y, width: size, height: size), display: true)
+        }
+
+        newPanel.alphaValue = 0
         newPanel.makeKeyAndOrderFront(nil)
         newPanel.orderFrontRegardless()
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            newPanel.animator().alphaValue = 1
+        }
+
+        isDocked = false
         self.panel = newPanel
     }
 
+    func dock() {
+        guard let panel, !isDocked else { return }
+        isDocked = true
+
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let pillWidth: CGFloat = 40
+        let pillHeight: CGFloat = 120
+        let margin: CGFloat = 16
+        let targetRect = NSRect(
+            x: screenFrame.maxX - pillWidth - margin,
+            y: screenFrame.midY - pillHeight / 2,
+            width: pillWidth,
+            height: pillHeight
+        )
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.4
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(targetRect, display: true)
+        }
+    }
+
+    func undock() {
+        guard let panel, isDocked else { return }
+        isDocked = false
+
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let size: CGFloat = 200
+        let targetRect = NSRect(
+            x: screenFrame.midX - size / 2,
+            y: screenFrame.midY - size / 2,
+            width: size,
+            height: size
+        )
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.4
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(targetRect, display: true)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     func dismiss() {
-        panel?.close()
-        panel = nil
+        stopRecordingHandler?()
+        guard let panel else { return }
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.2
+            panel.animator().alphaValue = 0
+        }, completionHandler: {
+            Task { @MainActor [weak self] in
+                panel.close()
+                self?.panel = nil
+                self?.isDocked = false
+                self?.stopRecordingHandler = nil
+            }
+        })
+    }
+
+    // MARK: - Notification
+
+    func postSavedNotification(duration: TimeInterval) {
+        let content = UNMutableNotificationContent()
+        content.title = "Recording saved"
+        content.body = "Duration: \(Self.formatted(duration)). Transcribing\u{2026}"
+        content.sound = nil
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
+    }
+
+    private static func formatted(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        return "\(seconds)s"
     }
 }
 
@@ -117,86 +273,114 @@ struct QuickRecordView: View {
     @Bindable var store: RecordingStore
     var modelManager: ModelManager
     var settingsManager: SettingsManager
-    var onDismiss: () -> Void
+    var controller: QuickRecordController
 
     @State private var recorder = AudioRecorder()
     @State private var recordingURL: URL?
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Record/Stop button
-            Button {
-                if recorder.isRecording {
-                    stopRecording()
-                } else {
-                    startRecording()
-                }
-            } label: {
-                Image(systemName: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(recorder.isRecording ? MapleTheme.error : MapleTheme.primary)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 4) {
-                if recorder.isRecording {
-                    Text(formatTime(recorder.elapsedTime))
-                        .font(.system(.title2, design: .monospaced, weight: .medium))
-                        .foregroundStyle(MapleTheme.textPrimary)
-
-                    // Mini waveform
-                    HStack(spacing: 1) {
-                        ForEach(Array(recorder.amplitudeSamples.suffix(30).enumerated()), id: \.offset) { _, sample in
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(MapleTheme.primary)
-                                .frame(width: 3, height: max(2, CGFloat(sample) * 24))
-                        }
-                    }
-                    .frame(height: 24, alignment: .center)
-                } else {
-                    Text("Quick Record")
-                        .font(.system(.title2, design: .rounded, weight: .medium))
-                        .foregroundStyle(MapleTheme.textPrimary)
-
-                    Text("⌘⇧R to toggle • Esc to close")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textSecondary)
-                }
-            }
-
-            Spacer()
-
-            if recorder.isRecording {
-                // Include system audio toggle
-                Toggle(isOn: .constant(recorder.includeSystemAudio)) {
-                    Image(systemName: "speaker.wave.2")
-                }
-                .toggleStyle(.checkbox)
-                .disabled(true)
-                .help("System audio (set before recording)")
+        Group {
+            if controller.isDocked {
+                dockedView
+            } else {
+                centeredView
             }
         }
-        .padding(20)
-        .frame(width: 480)
-        .background(.ultraThinMaterial, in: .rect(cornerRadius: 16))
+        .onAppear {
+            controller.stopRecordingHandler = { [self] in
+                if recorder.isRecording {
+                    saveAndNotify()
+                }
+            }
+            startRecording()
+        }
+    }
+
+    // MARK: - Centered State (200×200)
+
+    private var centeredView: some View {
+        VStack(spacing: 8) {
+            Text(formatTime(recorder.elapsedTime))
+                .font(.system(.title3, design: .monospaced))
+                .foregroundStyle(MapleTheme.textPrimary)
+
+            ZStack {
+                PulsingWaveform(audioLevel: recorder.audioLevel)
+
+                Button {
+                    saveAndNotify()
+                    controller.dismiss()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(MapleTheme.error, in: .circle)
+                        .shadow(color: MapleTheme.error.opacity(0.3), radius: 8, y: 4)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 160, height: 160)
+        }
+        .frame(width: 200, height: 200)
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 20))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 20)
                 .strokeBorder(MapleTheme.border.opacity(0.3), lineWidth: 0.5)
         )
     }
 
+    // MARK: - Docked State (40×120 vertical pill)
+
+    private var dockedView: some View {
+        VStack(spacing: 6) {
+            // Pulsing red dot
+            Circle()
+                .fill(.red)
+                .frame(width: 8, height: 8)
+                .opacity(recorder.isRecording ? 1 : 0.3)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: recorder.isRecording)
+
+            // Mini vertical waveform bars
+            VStack(spacing: 1) {
+                ForEach(Array(recorder.amplitudeSamples.suffix(4).enumerated()), id: \.offset) { _, sample in
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(MapleTheme.primary)
+                        .frame(width: max(3, CGFloat(sample) * 16), height: 2)
+                }
+            }
+            .frame(width: 16, alignment: .center)
+
+            Text(formatTime(recorder.elapsedTime))
+                .font(.system(.caption2, design: .monospaced, weight: .medium))
+                .foregroundStyle(MapleTheme.textPrimary)
+        }
+        .padding(.vertical, 10)
+        .frame(width: 40, height: 120)
+        .background(.ultraThinMaterial, in: .capsule)
+        .overlay(Capsule().strokeBorder(MapleTheme.border.opacity(0.3), lineWidth: 0.5))
+        .onTapGesture {
+            saveAndNotify()
+            controller.dismiss()
+        }
+    }
+
+    // MARK: - Recording
+
     private func startRecording() {
+        recorder.includeSystemAudio = controller.includeSystemAudio
         Task {
             do {
                 recordingURL = try await recorder.startRecording()
             } catch {
                 print("Quick record failed: \(error)")
+                controller.dismiss()
             }
         }
     }
 
-    private func stopRecording() {
+    private func saveAndNotify() {
+        let duration = recorder.elapsedTime
         let urls = recorder.stopRecording()
         guard !urls.isEmpty else { return }
 
@@ -236,7 +420,12 @@ struct QuickRecordView: View {
             }
         }
 
-        onDismiss()
+        // Select recording in main UI and bring app to front
+        store.pendingSelectionId = recording.id
+        NSApplication.shared.activate()
+
+        // Post system notification
+        controller.postSavedNotification(duration: duration)
     }
 
     private func formatTime(_ time: TimeInterval) -> String {

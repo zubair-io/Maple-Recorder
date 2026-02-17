@@ -61,19 +61,18 @@ private struct PulsingWaveformCanvas: View {
         ring: CGFloat,
         fraction: CGFloat
     ) {
-        // Invisible during silence — level drives everything
-        guard level > 0.005 else { return }
+        let boosted = sqrt(level)
 
         let phase = Double(ring * 1.3)
-        // Strong breathing: rings grow significantly with audio level
-        let breatheAmount = level * (0.3 + fraction * 0.5)
-        let breatheWave = 1.0 + 0.4 * CGFloat(sin(time * 2.5 + phase))
-        let breathe = 1.0 + breatheAmount * breatheWave
+        // Idle: rings visible around the button; sound makes them bloom outward
+        let breatheWave = 1.0 + 0.4 * CGFloat(sin(time * 5.0 + phase))
+        let growAmount = boosted * (0.7 + fraction * 0.5)
+        let scale = 0.5 + growAmount * breatheWave
         let baseRadius = (Self.baseSize / 2) * (0.35 + fraction * 0.45)
-        let radius = baseRadius * breathe
+        let radius = baseRadius * scale
 
-        // More distortion at higher levels for wilder shapes
-        let distortion = Double(level) * (0.2 + Double(fraction) * 0.1)
+        // Distortion increases with level for organic shapes when loud
+        let distortion = Double(boosted) * (0.35 + Double(fraction) * 0.6)
         let path = organicBlobPath(
             center: center,
             radius: radius,
@@ -82,12 +81,12 @@ private struct PulsingWaveformCanvas: View {
             distortion: distortion
         )
 
-        // Opacity fully driven by level: 0 at silence, bright at loud
-        let ringOpacity = Double(level) * (1.0 - Double(fraction) * 0.25)
+        // Always visible — brighter with more sound
+        let ringOpacity = (0.35 + 0.65 * Double(boosted)) * (1.0 - Double(fraction) * 0.15)
         let lineWidth: CGFloat = 3.5 - fraction
 
-        let fillColor = MapleTheme.primary.opacity(ringOpacity * 0.6)
-        let strokeColor = MapleTheme.primary.opacity(ringOpacity)
+        let fillColor = MapleTheme.primary.opacity(ringOpacity * 0.45)
+        let strokeColor = MapleTheme.primary.opacity(ringOpacity * 0.85)
 
         context.fill(path, with: .color(fillColor))
         context.stroke(path, with: .color(strokeColor), lineWidth: lineWidth)
@@ -110,8 +109,12 @@ private struct PulsingWaveformCanvas: View {
             let wave2 = sin(angle * 3 - time * 1.2 + phase * 0.7) * 0.3
             let wave3 = sin(angle * 5 + time * 2.3 + phase * 1.4) * 0.15
             let wave4 = cos(angle * 4 - time * 0.9 + phase * 2.0) * 0.15
+            let wave5 = sin(angle * 7 - time * 2.8 + phase * 1.1) * 0.2
+            let wave6 = cos(angle * 6 + time * 1.5 + phase * 0.5) * 0.15
+            let wave7 = sin(angle * 9 + time * 3.2 - phase * 1.8) * 0.1
+            let wave8 = cos(angle * 8 - time * 2.1 + phase * 2.3) * 0.1
 
-            let wobble = 1.0 + distortion * (wave1 + wave2 + wave3 + wave4)
+            let wobble = 1.0 + distortion * (wave1 + wave2 + wave3 + wave4 + wave5 + wave6 + wave7 + wave8)
             let r = radius * CGFloat(wobble)
 
             let x = center.x + CGFloat(cos(angle)) * r

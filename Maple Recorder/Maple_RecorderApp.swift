@@ -43,6 +43,8 @@ struct Maple_RecorderApp: App {
                 quickRecordController.store = store
                 quickRecordController.modelManager = modelManager
                 quickRecordController.settingsManager = settingsManager
+                quickRecordController.registerGlobalHotkey()
+                quickRecordController.requestNotificationPermission()
             }
             #endif
             #endif
@@ -53,7 +55,12 @@ struct Maple_RecorderApp: App {
                 Button("Quick Record") {
                     quickRecordController.toggle()
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .keyboardShortcut(".", modifiers: [.control])
+
+                Button("Quick Record with System Audio") {
+                    quickRecordController.toggleWithSystemAudio()
+                }
+                .keyboardShortcut("/", modifiers: [.control])
             }
         }
         #endif

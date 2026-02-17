@@ -34,6 +34,12 @@ struct RecordingListView: View {
             detailColumn
         }
         .tint(MapleTheme.primary)
+        .onChange(of: store.pendingSelectionId) { _, newId in
+            if let newId {
+                selectedRecordingId = newId
+                store.pendingSelectionId = nil
+            }
+        }
         #else
         NavigationStack {
             listContent
@@ -303,6 +309,13 @@ struct RecordingListView: View {
 
     private var recordingOverlay: some View {
         VStack(spacing: 12) {
+            Text(formatTime(recorder.elapsedTime))
+                .font(.system(.title3, design: .monospaced))
+                .foregroundStyle(MapleTheme.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(MapleTheme.surfaceAlt, in: .capsule)
+
             ZStack {
                 PulsingWaveform(audioLevel: recorder.audioLevel)
 
@@ -318,18 +331,9 @@ struct RecordingListView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .frame(width: 180, height: 180)
-
-            Text(formatTime(recorder.elapsedTime))
-                .font(.system(.title3, design: .monospaced))
-                .foregroundStyle(MapleTheme.textPrimary)
-
-            Text("Recording")
-                .font(.caption)
-                .foregroundStyle(MapleTheme.textSecondary)
+            .frame(width: 64, height: 64)
         }
-        .padding(.top, 16)
-        .padding(.bottom, 32)
+        .padding(.bottom, 24)
         .frame(maxWidth: .infinity)
         .background(
             Rectangle()
