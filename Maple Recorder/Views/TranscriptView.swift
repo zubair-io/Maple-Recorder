@@ -4,15 +4,23 @@ struct TranscriptView: View {
     let transcript: [TranscriptSegment]
     let speakers: [Speaker]
     @Bindable var syncEngine: PlaybackSyncEngine
+    var searchQuery: String = ""
     var onSeekToWord: ((WordTiming) -> Void)?
     var onRenameSpeaker: ((Speaker) -> Void)?
 
     @State private var isUserScrolling = false
 
+    private var filteredTranscript: [TranscriptSegment] {
+        if searchQuery.isEmpty { return transcript }
+        return transcript.filter {
+            $0.text.localizedCaseInsensitiveContains(searchQuery)
+        }
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             LazyVStack(alignment: .leading, spacing: 4) {
-                ForEach(transcript) { segment in
+                ForEach(filteredTranscript) { segment in
                     TranscriptRowView(
                         segment: segment,
                         speaker: speakerFor(segment),

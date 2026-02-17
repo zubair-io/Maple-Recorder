@@ -7,7 +7,8 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     var isPlaying = false
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
-    var playbackRate: Float = 1.0
+    var speed: PlaybackSpeed = .x1
+    var playbackRate: Float { speed.rawValue }
 
     private var players: [(player: AVAudioPlayer, startOffset: TimeInterval, fileDuration: TimeInterval)] = []
     private var currentChunkIndex = 0
@@ -100,10 +101,18 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
         seek(to: currentTime - seconds)
     }
 
-    func setRate(_ rate: Float) {
-        playbackRate = rate
+    func cycleSpeed() {
+        speed = speed.next()
         if isPlaying {
-            players[currentChunkIndex].player.rate = rate
+            players[currentChunkIndex].player.rate = playbackRate
+        }
+    }
+
+    func setRate(_ rate: Float) {
+        // Find the closest PlaybackSpeed or default to x1
+        speed = PlaybackSpeed.allCases.first { $0.rawValue == rate } ?? .x1
+        if isPlaying {
+            players[currentChunkIndex].player.rate = playbackRate
         }
     }
 

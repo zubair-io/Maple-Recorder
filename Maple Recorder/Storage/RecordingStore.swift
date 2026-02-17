@@ -103,6 +103,7 @@ final class RecordingStore {
         updated.transcript = result.segments
         updated.speakers = result.speakers
         updated.summary = result.summary
+        updated.tags = result.tags
         if !result.generatedTitle.isEmpty {
             updated.title = result.generatedTitle
         }

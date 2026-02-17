@@ -6,6 +6,8 @@ enum ModelDownloadStep: String, Sendable {
     case idle = ""
     case downloadingASR = "Downloading speech model…"
     case downloadingDiarization = "Downloading speaker model…"
+    case loadingASR = "Loading speech model…"
+    case loadingDiarization = "Loading speaker model…"
     case compilingModels = "Compiling models…"
     case ready = "Models ready"
     case failed = "Download failed"
@@ -28,15 +30,18 @@ final class ModelManager {
         error = nil
         downloadProgress = 0
 
+        let asrCached = transcriptionManager.isModelReady
+        let diarCached = diarizationManager.isModelReady
+
         do {
-            // Step 1: Download ASR model (~60% of total)
-            downloadStep = .downloadingASR
+            // Step 1: ASR model (~60% of total)
+            downloadStep = asrCached ? .loadingASR : .downloadingASR
             downloadProgress = 0.05
             try await transcriptionManager.initialize()
             downloadProgress = 0.55
 
-            // Step 2: Download diarization model (~35% of total)
-            downloadStep = .downloadingDiarization
+            // Step 2: Diarization model (~35% of total)
+            downloadStep = diarCached ? .loadingDiarization : .downloadingDiarization
             downloadProgress = 0.6
             try await diarizationManager.initialize()
             downloadProgress = 0.95

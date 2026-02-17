@@ -11,6 +11,7 @@ struct MapleRecording: Identifiable, Sendable {
     var speakers: [Speaker]
     var transcript: [TranscriptSegment]
     var promptResults: [PromptResult]
+    var tags: [String]
 
     init(
         id: UUID = UUID(),
@@ -22,7 +23,8 @@ struct MapleRecording: Identifiable, Sendable {
         modifiedAt: Date = Date(),
         speakers: [Speaker] = [],
         transcript: [TranscriptSegment] = [],
-        promptResults: [PromptResult] = []
+        promptResults: [PromptResult] = [],
+        tags: [String] = []
     ) {
         self.id = id
         self.title = title
@@ -34,6 +36,7 @@ struct MapleRecording: Identifiable, Sendable {
         self.speakers = speakers
         self.transcript = transcript
         self.promptResults = promptResults
+        self.tags = tags
     }
 }
 
@@ -49,12 +52,48 @@ extension MapleRecording {
         var speakers: [Speaker]
         var transcript: [TranscriptSegment]
         var promptResults: [PromptResult]
+        var tags: [String]
 
         enum CodingKeys: String, CodingKey {
-            case id, audio, duration, speakers, transcript
+            case id, audio, duration, speakers, transcript, tags
             case createdAt = "created_at"
             case modifiedAt = "modified_at"
             case promptResults = "prompt_results"
+        }
+
+        init(
+            id: UUID,
+            audio: [String],
+            duration: TimeInterval,
+            createdAt: Date,
+            modifiedAt: Date,
+            speakers: [Speaker],
+            transcript: [TranscriptSegment],
+            promptResults: [PromptResult],
+            tags: [String]
+        ) {
+            self.id = id
+            self.audio = audio
+            self.duration = duration
+            self.createdAt = createdAt
+            self.modifiedAt = modifiedAt
+            self.speakers = speakers
+            self.transcript = transcript
+            self.promptResults = promptResults
+            self.tags = tags
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            audio = try container.decode([String].self, forKey: .audio)
+            duration = try container.decode(TimeInterval.self, forKey: .duration)
+            createdAt = try container.decode(Date.self, forKey: .createdAt)
+            modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
+            speakers = try container.decode([Speaker].self, forKey: .speakers)
+            transcript = try container.decode([TranscriptSegment].self, forKey: .transcript)
+            promptResults = try container.decode([PromptResult].self, forKey: .promptResults)
+            tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         }
     }
 
@@ -67,7 +106,8 @@ extension MapleRecording {
             modifiedAt: modifiedAt,
             speakers: speakers,
             transcript: transcript,
-            promptResults: promptResults
+            promptResults: promptResults,
+            tags: tags
         )
     }
 
@@ -82,5 +122,6 @@ extension MapleRecording {
         self.speakers = metadata.speakers
         self.transcript = metadata.transcript
         self.promptResults = metadata.promptResults
+        self.tags = metadata.tags
     }
 }

@@ -9,33 +9,30 @@ struct TranscriptRowView: View {
     var onTapSpeaker: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Left accent bar
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(speakerColor)
-                .frame(width: 3)
-                .padding(.trailing, 8)
-
-            // Timestamp + speaker name
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(formatTimestamp(segment.start))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(MapleTheme.textSecondary)
-
+        VStack(alignment: .leading, spacing: 6) {
+            // Top row: speaker name + timestamp
+            HStack {
                 Button {
                     onTapSpeaker?()
                 } label: {
                     Text(speaker?.displayName ?? segment.speakerId)
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                        .font(.subheadline)
+                        .fontWeight(.bold)
                         .foregroundStyle(speakerColor)
                 }
                 .buttonStyle(.plain)
-            }
-            .frame(width: 70, alignment: .trailing)
-            .padding(.trailing, 10)
 
-            // Word-level text with flow layout
+                Spacer()
+
+                Text(formatTimestamp(segment.start))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(MapleTheme.surfaceAlt, in: .capsule)
+            }
+
+            // Body: word-level text
             FlowLayout(spacing: 0) {
                 ForEach(segment.words) { word in
                     Text(word.word + " ")
@@ -54,10 +51,18 @@ struct TranscriptRowView: View {
                 }
             }
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.leading, 4)
+        .overlay(alignment: .leading) {
+            if isActive {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(MapleTheme.primary)
+                    .frame(width: 4)
+            }
+        }
         .background(
-            isActive ? MapleTheme.primaryLight.opacity(0.15) : Color.clear,
+            isActive ? MapleTheme.primaryLight.opacity(0.1) : Color.clear,
             in: .rect(cornerRadius: 8)
         )
     }

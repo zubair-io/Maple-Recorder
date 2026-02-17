@@ -235,7 +235,7 @@ private struct PulsingRings: View {
         let base = 0.15 + level * 0.5
         let offset = Double(ring) * 0.7
         let pulse = sin(phase + offset) * 0.5 + 0.5
-        return base * (1.0 - Double(ring) * 0.25) * (0.6 + 0.4 * pulse)
+        return base * (1.0 - Double(ring) * 0.45) * (0.6 + 0.4 * pulse)
     }
 }
 

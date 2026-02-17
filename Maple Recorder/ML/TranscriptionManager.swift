@@ -15,7 +15,12 @@ final class TranscriptionManager {
     private var asrManager: AsrManager?
 
     func initialize() async throws {
-        let models = try await AsrModels.downloadAndLoad(version: .v3)
+        let models: AsrModels
+        if try await AsrModels.isModelValid(version: .v3) {
+            models = try await AsrModels.loadFromCache(version: .v3)
+        } else {
+            models = try await AsrModels.downloadAndLoad(version: .v3)
+        }
         let manager = AsrManager(config: .default)
         try await manager.initialize(models: models)
         self.asrManager = manager

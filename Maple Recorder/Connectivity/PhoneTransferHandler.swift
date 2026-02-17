@@ -76,7 +76,10 @@ final class PhoneTransferHandler: NSObject, WCSessionDelegate, @unchecked Sendab
             return
         }
 
-        // Process if models are ready
+        // Ensure models are downloaded before processing
+        if !modelManager.isReady {
+            await modelManager.ensureModelsReady()
+        }
         guard modelManager.isReady else { return }
 
         let pipeline = modelManager.createPipeline()
