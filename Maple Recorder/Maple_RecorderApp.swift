@@ -15,6 +15,7 @@ struct Maple_RecorderApp: App {
     #endif
     #if os(macOS)
     @State private var quickRecordController = QuickRecordController()
+    @State private var miniRecordingController = MiniRecordingController()
     #endif
 
     var body: some Scene {
@@ -26,6 +27,34 @@ struct Maple_RecorderApp: App {
                     monitor.startMonitoring()
                     syncMonitor = monitor
                 }
+            #elseif os(macOS)
+            RecordingListView(
+                store: store,
+                modelManager: modelManager,
+                settingsManager: settingsManager,
+                promptStore: promptStore,
+                autoProcessor: autoProcessor,
+                miniRecordingController: miniRecordingController
+            )
+            .task {
+                let monitor = ICloudSyncMonitor(store: store)
+                monitor.startMonitoring()
+                syncMonitor = monitor
+
+                await modelManager.ensureModelsReady()
+
+                let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
+                autoProcessor = processor
+                processor.startWatching()
+            }
+            .onAppear {
+                quickRecordController.store = store
+                quickRecordController.modelManager = modelManager
+                quickRecordController.settingsManager = settingsManager
+                quickRecordController.registerGlobalHotkey()
+                quickRecordController.requestNotificationPermission()
+                miniRecordingController.startMonitoring()
+            }
             #else
             RecordingListView(
                 store: store,
@@ -45,7 +74,6 @@ struct Maple_RecorderApp: App {
                 autoProcessor = processor
                 processor.startWatching()
             }
-            #if os(iOS)
             .onAppear {
                 phoneTransferHandler.configure(
                     store: store,
@@ -53,16 +81,6 @@ struct Maple_RecorderApp: App {
                     settingsManager: settingsManager
                 )
             }
-            #endif
-            #if os(macOS)
-            .onAppear {
-                quickRecordController.store = store
-                quickRecordController.modelManager = modelManager
-                quickRecordController.settingsManager = settingsManager
-                quickRecordController.registerGlobalHotkey()
-                quickRecordController.requestNotificationPermission()
-            }
-            #endif
             #endif
         }
         #if os(macOS)

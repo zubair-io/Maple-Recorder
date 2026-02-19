@@ -14,9 +14,21 @@ final class AudioRecorder {
     var audioLevel: Float = 0
     var amplitudeSamples: [Float] = []
 
+    // Auto-stop on silence
+    var autoStopTriggered = false
+    var autoStopEnabled = true
+    private var autoStopDuration: TimeInterval = 300
+    private static let autoStopSilenceThreshold: Float = 0.015
+    private var speechInactivityStart: Date?
+
     #if os(macOS)
     var includeSystemAudio = false
     private var systemCapture = SystemAudioCapture()
+
+    // End-call chime detection
+    var endCallDetected = false
+    var endCallDetectionEnabled = false
+    private var chimeDetector: EndCallChimeDetector?
     #endif
 
     private var audioEngine: AVAudioEngine?
@@ -103,6 +115,11 @@ final class AudioRecorder {
         self.isRecording = true
         self.elapsedTime = 0
         self.chunkStartTime = Date()
+        self.autoStopTriggered = false
+        self.speechInactivityStart = nil
+        #if os(macOS)
+        self.endCallDetected = false
+        #endif
 
         let startTime = Date()
         self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -136,6 +153,12 @@ final class AudioRecorder {
         amplitudeSamples = []
         isSplitSeeking = false
         silenceStartTime = nil
+        autoStopTriggered = false
+        speechInactivityStart = nil
+        #if os(macOS)
+        endCallDetected = false
+        chimeDetector = nil
+        #endif
 
         #if os(macOS)
         Task {
@@ -147,6 +170,31 @@ final class AudioRecorder {
         #endif
 
         return result
+    }
+
+    // MARK: - Auto-Stop Configuration
+
+    func configureAutoStop(enabled: Bool, durationMinutes: Int) {
+        autoStopEnabled = enabled
+        autoStopDuration = TimeInterval(durationMinutes) * 60.0
+    }
+
+    /// Called on writeQueue. Returns true when speech inactivity exceeds the configured duration.
+    private func checkSpeechInactivity(rms: Float) -> Bool {
+        guard autoStopEnabled else { return false }
+
+        if rms < Self.autoStopSilenceThreshold {
+            if speechInactivityStart == nil {
+                speechInactivityStart = Date()
+            }
+            if let start = speechInactivityStart,
+               Date().timeIntervalSince(start) >= autoStopDuration {
+                return true
+            }
+        } else {
+            speechInactivityStart = nil
+        }
+        return false
     }
 
     // MARK: - Buffer Writing (called on writeQueue)
@@ -163,6 +211,9 @@ final class AudioRecorder {
         }
         let rms = sqrt(sum / Float(max(frameCount, 1)))
 
+        // Check speech inactivity for auto-stop (runs on writeQueue)
+        let shouldAutoStop = checkSpeechInactivity(rms: rms)
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             // Normalize RMS to 0–1 range visible for UI (raw mic RMS is ~0.001–0.05)
@@ -176,6 +227,10 @@ final class AudioRecorder {
             }
             self.amplitudeSamples.append(min(rms * 3, 1.0))
             self.checkChunkBoundary(rms: rms)
+
+            if shouldAutoStop {
+                self.autoStopTriggered = true
+            }
         }
     }
 
@@ -194,9 +249,22 @@ final class AudioRecorder {
             throw SystemAudioCaptureError.permissionDenied
         }
 
+        // Set up chime detector if enabled
+        if endCallDetectionEnabled {
+            let detector = EndCallChimeDetector()
+            detector.onChimeDetected = { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.endCallDetected = true
+                }
+            }
+            self.chimeDetector = detector
+        }
+
         // System audio buffers get written to their own file via writeQueue
         systemCapture.onAudioBuffer = { [weak self] buffer in
             guard let self else { return }
+            // Feed to chime detector (runs on its own analysis queue)
+            self.chimeDetector?.analyzeBuffer(buffer)
             self.writeQueue.async {
                 self.writeSystemBufferOnQueue(buffer)
             }

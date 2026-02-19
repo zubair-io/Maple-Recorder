@@ -48,6 +48,32 @@ final class SettingsManager {
         }
     }
 
+    // MARK: - Recording Settings
+
+    var autoStopOnSilenceEnabled: Bool {
+        get { settings.autoStopOnSilenceEnabled }
+        set {
+            settings.autoStopOnSilenceEnabled = newValue
+            try? save()
+        }
+    }
+
+    var autoStopSilenceMinutes: Int {
+        get { settings.autoStopSilenceMinutes }
+        set {
+            settings.autoStopSilenceMinutes = newValue
+            try? save()
+        }
+    }
+
+    var endCallDetectionEnabled: Bool {
+        get { settings.endCallDetectionEnabled }
+        set {
+            settings.endCallDetectionEnabled = newValue
+            try? save()
+        }
+    }
+
     // MARK: - Persistence
 
     private static var settingsURL: URL {

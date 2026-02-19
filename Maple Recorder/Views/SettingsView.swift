@@ -56,6 +56,23 @@ struct SettingsView: View {
                     }
                 }
 
+                // Recording
+                Section("Recording") {
+                    Toggle("Auto-stop on silence", isOn: $settingsManager.autoStopOnSilenceEnabled)
+
+                    if settingsManager.autoStopOnSilenceEnabled {
+                        Stepper(
+                            "After \(settingsManager.autoStopSilenceMinutes) min of silence",
+                            value: $settingsManager.autoStopSilenceMinutes,
+                            in: 1...30
+                        )
+                    }
+
+                    #if os(macOS)
+                    Toggle("Auto-stop on meeting end chime", isOn: $settingsManager.endCallDetectionEnabled)
+                    #endif
+                }
+
                 // Custom Prompts
                 Section {
                     ForEach(promptStore.prompts) { prompt in
