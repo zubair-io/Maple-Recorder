@@ -57,6 +57,7 @@ final class QuickRecordController {
     var store: RecordingStore?
     var modelManager: ModelManager?
     var settingsManager: SettingsManager?
+    var calendarManager: CalendarManager?
 
     var isDocked = false
     var includeSystemAudio = false
@@ -142,6 +143,7 @@ final class QuickRecordController {
                 store: store,
                 modelManager: modelManager,
                 settingsManager: settingsManager,
+                calendarManager: controller.calendarManager,
                 controller: controller
             )
         }
@@ -273,6 +275,7 @@ struct QuickRecordView: View {
     @Bindable var store: RecordingStore
     var modelManager: ModelManager
     var settingsManager: SettingsManager
+    var calendarManager: CalendarManager?
     var controller: QuickRecordController
 
     @State private var recorder = AudioRecorder()
@@ -402,10 +405,15 @@ struct QuickRecordView: View {
         guard !result.micURLs.isEmpty else { return }
 
         let now = Date()
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        let title = "Recording \(formatter.string(from: now))"
+        let title: String
+        if let meetingTitle = calendarManager?.currentMeetingTitle() {
+            title = meetingTitle
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            title = "Recording \(formatter.string(from: now))"
+        }
 
         var audioFileNames: [String] = []
         for url in result.micURLs {

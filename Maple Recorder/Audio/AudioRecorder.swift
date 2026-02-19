@@ -31,8 +31,13 @@ final class AudioRecorder {
     private var chimeDetector: EndCallChimeDetector?
     #endif
 
+    /// Set to a non-empty string when a recoverable error occurs (e.g. stream disconnect).
+    /// Views can observe this to show a transient warning.
+    var recordingWarning: String?
+
     private var audioEngine: AVAudioEngine?
     private var timer: Timer?
+    private var engineObservers: [Any] = []
 
     // Serial queue for all file writes — eliminates concurrent access to AVAudioFile
     private let writeQueue = DispatchQueue(label: "com.maple.audioWriter", qos: .userInteractive)
@@ -117,9 +122,13 @@ final class AudioRecorder {
         self.chunkStartTime = Date()
         self.autoStopTriggered = false
         self.speechInactivityStart = nil
+        self.recordingWarning = nil
         #if os(macOS)
         self.endCallDetected = false
         #endif
+
+        // Observe audio engine configuration changes (hardware route changes, Bluetooth connects, etc.)
+        observeEngineInterruptions(engine)
 
         let startTime = Date()
         self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -138,6 +147,7 @@ final class AudioRecorder {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
+        removeEngineObservers()
 
         // Drain the write queue to ensure all pending writes complete,
         // then nil out the files so no further writes occur.
@@ -178,6 +188,98 @@ final class AudioRecorder {
         autoStopEnabled = enabled
         autoStopDuration = TimeInterval(durationMinutes) * 60.0
     }
+
+    // MARK: - Engine Interruption Handling
+
+    private func observeEngineInterruptions(_ engine: AVAudioEngine) {
+        removeEngineObservers()
+
+        // AVAudioEngine's config change means hardware route changed (Bluetooth, external mic, etc.)
+        let configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleEngineConfigurationChange()
+        }
+        engineObservers.append(configObserver)
+
+        #if os(iOS)
+        let interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioSessionInterruption(notification)
+        }
+        engineObservers.append(interruptionObserver)
+        #endif
+    }
+
+    private func removeEngineObservers() {
+        for observer in engineObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        engineObservers.removeAll()
+    }
+
+    private func handleEngineConfigurationChange() {
+        guard isRecording, let engine = audioEngine else { return }
+        print("[AudioRecorder] Engine configuration changed — restarting engine")
+        recordingWarning = "Audio route changed, reconnecting..."
+
+        // The engine is already stopped by the system at this point.
+        // Re-read the new input format and restart.
+        let inputNode = engine.inputNode
+        let newFormat = inputNode.outputFormat(forBus: 0)
+
+        // Remove old tap and reinstall with the new format
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: newFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            self.writeQueue.async {
+                self.writeMicBufferOnQueue(buffer)
+            }
+        }
+
+        do {
+            try engine.start()
+            Task { @MainActor [weak self] in
+                // Clear warning after a brief delay
+                try? await Task.sleep(for: .seconds(2))
+                if self?.recordingWarning == "Audio route changed, reconnecting..." {
+                    self?.recordingWarning = nil
+                }
+            }
+        } catch {
+            print("[AudioRecorder] Failed to restart engine: \(error)")
+            recordingWarning = "Audio input lost — recording may be incomplete"
+        }
+    }
+
+    #if os(iOS)
+    private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            print("[AudioRecorder] Audio session interrupted (e.g. phone call)")
+            recordingWarning = "Audio interrupted"
+        case .ended:
+            print("[AudioRecorder] Audio session interruption ended")
+            let options = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
+                try? AVAudioSession.sharedInstance().setActive(true)
+                try? audioEngine?.start()
+                recordingWarning = nil
+            }
+        @unknown default:
+            break
+        }
+    }
+    #endif
 
     /// Called on writeQueue. Returns true when speech inactivity exceeds the configured duration.
     private func checkSpeechInactivity(rms: Float) -> Bool {
@@ -258,6 +360,15 @@ final class AudioRecorder {
                 }
             }
             self.chimeDetector = detector
+        }
+
+        // Handle stream disconnections — reset chime detector state on error
+        // (the stream auto-reconnects internally; this fires if all retries fail)
+        systemCapture.onStreamError = { [weak self] error in
+            self?.chimeDetector?.reset()
+            Task { @MainActor [weak self] in
+                self?.recordingWarning = "System audio lost: \(error.localizedDescription)"
+            }
         }
 
         // System audio buffers get written to their own file via writeQueue

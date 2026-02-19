@@ -9,6 +9,7 @@ struct Maple_RecorderApp: App {
     @State private var settingsManager = SettingsManager()
     @State private var promptStore = PromptStore()
     @State private var autoProcessor: AutoProcessor?
+    @State private var calendarManager = CalendarManager()
     #endif
     #if os(iOS)
     @State private var phoneTransferHandler = PhoneTransferHandler()
@@ -34,6 +35,7 @@ struct Maple_RecorderApp: App {
                 settingsManager: settingsManager,
                 promptStore: promptStore,
                 autoProcessor: autoProcessor,
+                calendarManager: calendarManager,
                 miniRecordingController: miniRecordingController
             )
             .task {
@@ -42,6 +44,7 @@ struct Maple_RecorderApp: App {
                 syncMonitor = monitor
 
                 await modelManager.ensureModelsReady()
+                await calendarManager.requestAccess()
 
                 let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
                 autoProcessor = processor
@@ -51,6 +54,7 @@ struct Maple_RecorderApp: App {
                 quickRecordController.store = store
                 quickRecordController.modelManager = modelManager
                 quickRecordController.settingsManager = settingsManager
+                quickRecordController.calendarManager = calendarManager
                 quickRecordController.registerGlobalHotkey()
                 quickRecordController.requestNotificationPermission()
                 miniRecordingController.startMonitoring()
@@ -61,7 +65,8 @@ struct Maple_RecorderApp: App {
                 modelManager: modelManager,
                 settingsManager: settingsManager,
                 promptStore: promptStore,
-                autoProcessor: autoProcessor
+                autoProcessor: autoProcessor,
+                calendarManager: calendarManager
             )
             .task {
                 let monitor = ICloudSyncMonitor(store: store)
@@ -69,6 +74,7 @@ struct Maple_RecorderApp: App {
                 syncMonitor = monitor
 
                 await modelManager.ensureModelsReady()
+                await calendarManager.requestAccess()
 
                 let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
                 autoProcessor = processor

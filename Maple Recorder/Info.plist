@@ -11,6 +11,8 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Maple Recorder needs microphone access to record audio.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Maple Recorder checks your calendar to automatically name recordings after the current meeting.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.just.maple.Maple-Recorder</key>

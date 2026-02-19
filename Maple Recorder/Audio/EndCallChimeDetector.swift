@@ -3,43 +3,73 @@ import Accelerate
 import AVFoundation
 import Foundation
 
-/// Detects the Google Meet end-call chime by analyzing system audio for a
-/// two-tone descending pattern (~783 Hz G5 → ~659 Hz E5 within 0.8 seconds).
-/// Uses Accelerate vDSP FFT on a dedicated queue to avoid blocking audio writes.
+/// Detects the Google Meet end-call chime in system audio.
+///
+/// The chime is a two-tone descending pattern: a higher tone followed by a lower tone
+/// within ~0.6 seconds. Rather than relying on a single dominant-frequency check
+/// (which fails when people are talking), this detector looks for a *significant peak*
+/// near each target frequency that stands out above the local spectral noise floor.
+///
+/// Uses 50%-overlapping FFT frames for better temporal resolution and Accelerate
+/// vDSP on a dedicated queue to avoid blocking audio writes.
+///
+/// **Calibration:** The default frequencies (~880 Hz → ~698 Hz) are approximate.
+/// For best results, record the actual Google Meet end-call chime, inspect its
+/// spectrogram, and update `tone1Frequency` / `tone2Frequency`.
 final class EndCallChimeDetector: @unchecked Sendable {
     var onChimeDetected: (() -> Void)?
 
-    // FFT parameters: 4096-point at 48 kHz → ~11.7 Hz bin resolution
+    // FFT parameters: 4096-point at 48 kHz → ~11.7 Hz bin resolution, ~85 ms per frame
     private let fftSize = 4096
+    private let hopSize: Int  // 50% overlap = fftSize / 2
     private let sampleRate: Double = 48000.0
     private let analysisQueue = DispatchQueue(label: "com.maple.chimeDetector", qos: .utility)
 
-    // Frequency targets (Hz) with tolerance
-    private static let tone1Frequency: Double = 783.0   // G5
-    private static let tone2Frequency: Double = 659.0   // E5
-    private static let frequencyTolerance: Double = 30.0 // ±30 Hz
+    // Frequency targets (Hz) — approximate Google Meet end-call chime
+    // These should be calibrated from a real recording of the chime.
+    private static let tone1Frequency: Double = 880.0   // Higher tone (A5)
+    private static let tone2Frequency: Double = 698.0   // Lower tone (F5)
+    private static let frequencyTolerance: Double = 35.0 // ±35 Hz search band
 
     // Timing: tone2 must follow tone1 within this window
-    private static let maxToneGap: TimeInterval = 0.8
+    private static let maxToneGap: TimeInterval = 0.6
 
     // Cooldown to prevent re-triggers on the same chime
     private static let cooldownDuration: TimeInterval = 10.0
 
-    // Ring buffer to accumulate small SCStream buffers into FFT-sized chunks
+    // Peak detection: the target-band peak must be this many times above
+    // the median magnitude in the 200–2000 Hz range (signal-to-noise ratio)
+    private static let snrThreshold: Float = 8.0
+
+    // Minimum absolute magnitude to reject silence
+    private static let minMagnitude: Float = 0.005
+
+    // Ring buffer to accumulate small SCStream buffers
     private var ringBuffer: [Float] = []
 
     // Detection state
     private var tone1DetectedAt: Date?
     private var lastChimeAt: Date?
 
+    // Precomputed Hann window (reused every frame)
+    private let hannWindow: [Float]
+
     // vDSP FFT setup (created once, reused)
     private let fftSetup: FFTSetup?
     private let log2n: vDSP_Length
 
     init() {
-        log2n = vDSP_Length(log2(Double(fftSize)))
+        let size = 4096
+        hopSize = size / 2
+        log2n = vDSP_Length(log2(Double(size)))
         fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))
-        ringBuffer.reserveCapacity(fftSize * 2)
+
+        // Precompute Hann window
+        var window = [Float](repeating: 0, count: size)
+        vDSP_hann_window(&window, vDSP_Length(size), Int32(vDSP_HANN_NORM))
+        hannWindow = window
+
+        ringBuffer.reserveCapacity(size * 3)
     }
 
     deinit {
@@ -61,20 +91,28 @@ final class EndCallChimeDetector: @unchecked Sendable {
         }
     }
 
+    /// Clear internal state (call after a stream disconnection/reconnection).
+    func reset() {
+        analysisQueue.async { [weak self] in
+            self?.ringBuffer.removeAll(keepingCapacity: true)
+            self?.tone1DetectedAt = nil
+        }
+    }
+
     // MARK: - Private
 
     private func accumulateAndAnalyze(_ samples: [Float]) {
         ringBuffer.append(contentsOf: samples)
 
-        // Process as many full FFT frames as we have
+        // Process with 50% overlap: advance by hopSize each iteration
         while ringBuffer.count >= fftSize {
             let frame = Array(ringBuffer.prefix(fftSize))
-            ringBuffer.removeFirst(fftSize)
+            ringBuffer.removeFirst(hopSize)
             analyzeFrame(frame)
         }
 
-        // Prevent unbounded growth (keep at most 2× FFT size)
-        if ringBuffer.count > fftSize * 2 {
+        // Prevent unbounded growth
+        if ringBuffer.count > fftSize * 3 {
             ringBuffer.removeFirst(ringBuffer.count - fftSize)
         }
     }
@@ -88,13 +126,11 @@ final class EndCallChimeDetector: @unchecked Sendable {
             return
         }
 
-        // Apply Hann window
+        // Apply precomputed Hann window
         var windowed = [Float](repeating: 0, count: fftSize)
-        var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        vDSP_vmul(frame, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
+        vDSP_vmul(frame, 1, hannWindow, 1, &windowed, 1, vDSP_Length(fftSize))
 
-        // Split into real/imaginary for FFT
+        // FFT → magnitude spectrum
         let halfSize = fftSize / 2
         var realPart = [Float](repeating: 0, count: halfSize)
         var imagPart = [Float](repeating: 0, count: halfSize)
@@ -106,21 +142,23 @@ final class EndCallChimeDetector: @unchecked Sendable {
                     imagp: imagBuf.baseAddress!
                 )
 
-                // Pack interleaved data into split complex
                 windowed.withUnsafeBufferPointer { windowedBuf in
                     windowedBuf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfSize) { complexPtr in
                         vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(halfSize))
                     }
                 }
 
-                // Forward FFT
                 vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(kFFTDirection_Forward))
 
-                // Compute magnitudes
                 var magnitudes = [Float](repeating: 0, count: halfSize)
                 vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(halfSize))
 
-                checkTones(magnitudes: magnitudes)
+                // Use square-root magnitudes for more intuitive thresholds
+                var sqrtMags = [Float](repeating: 0, count: halfSize)
+                var count = Int32(halfSize)
+                vvsqrtf(&sqrtMags, magnitudes, &count)
+
+                checkTones(magnitudes: sqrtMags)
             }
         }
     }
@@ -128,42 +166,92 @@ final class EndCallChimeDetector: @unchecked Sendable {
     private func checkTones(magnitudes: [Float]) {
         let binResolution = sampleRate / Double(fftSize)
 
-        // Find the dominant frequency (bin with highest magnitude, ignoring DC and very low bins)
-        let minBin = Int(200.0 / binResolution) // Ignore below 200 Hz
-        let maxBin = min(magnitudes.count, Int(2000.0 / binResolution)) // Ignore above 2 kHz
-
+        // Analysis range: 200 Hz – 2000 Hz
+        let minBin = max(1, Int(200.0 / binResolution))
+        let maxBin = min(magnitudes.count - 1, Int(2000.0 / binResolution))
         guard minBin < maxBin else { return }
 
-        var peakBin = minBin
-        var peakMag: Float = 0
-        for i in minBin..<maxBin {
-            if magnitudes[i] > peakMag {
-                peakMag = magnitudes[i]
-                peakBin = i
+        // Compute median magnitude in analysis range for SNR baseline
+        let rangeSlice = Array(magnitudes[minBin...maxBin])
+        let medianMag = median(rangeSlice)
+
+        // Check both tones in this frame
+        let tone1Detected = isTonePresent(
+            frequency: Self.tone1Frequency,
+            tolerance: Self.frequencyTolerance,
+            magnitudes: magnitudes,
+            binResolution: binResolution,
+            medianMag: medianMag
+        )
+        let tone2Detected = isTonePresent(
+            frequency: Self.tone2Frequency,
+            tolerance: Self.frequencyTolerance,
+            magnitudes: magnitudes,
+            binResolution: binResolution,
+            medianMag: medianMag
+        )
+
+        if tone1Detected {
+            // Record tone1 time (don't return — also check tone2)
+            if tone1DetectedAt == nil {
+                tone1DetectedAt = Date()
             }
         }
 
-        // Require a minimum magnitude to filter silence/noise
-        guard peakMag > 1e-4 else { return }
-
-        let peakFrequency = Double(peakBin) * binResolution
-
-        // Check for tone1 (G5 ~783 Hz)
-        if abs(peakFrequency - Self.tone1Frequency) <= Self.frequencyTolerance {
-            tone1DetectedAt = Date()
-            return
-        }
-
-        // Check for tone2 (E5 ~659 Hz) following tone1
-        if abs(peakFrequency - Self.tone2Frequency) <= Self.frequencyTolerance {
+        if tone2Detected {
             if let tone1Time = tone1DetectedAt,
                Date().timeIntervalSince(tone1Time) <= Self.maxToneGap {
-                // Chime detected!
+                // Both tones detected in sequence — chime matched
                 tone1DetectedAt = nil
                 lastChimeAt = Date()
                 onChimeDetected?()
+                return
             }
         }
+
+        // Expire stale tone1 detections
+        if let tone1Time = tone1DetectedAt,
+           Date().timeIntervalSince(tone1Time) > Self.maxToneGap * 2 {
+            tone1DetectedAt = nil
+        }
+    }
+
+    /// Check if there is a significant peak near `frequency` that stands above the noise floor.
+    private func isTonePresent(
+        frequency: Double,
+        tolerance: Double,
+        magnitudes: [Float],
+        binResolution: Double,
+        medianMag: Float
+    ) -> Bool {
+        let centerBin = Int(frequency / binResolution)
+        let toleranceBins = Int(tolerance / binResolution)
+        let lowBin = max(0, centerBin - toleranceBins)
+        let highBin = min(magnitudes.count - 1, centerBin + toleranceBins)
+        guard lowBin <= highBin else { return false }
+
+        // Find peak in the target band
+        var peakMag: Float = 0
+        for bin in lowBin...highBin {
+            peakMag = max(peakMag, magnitudes[bin])
+        }
+
+        // Must exceed absolute minimum (reject silence)
+        guard peakMag > Self.minMagnitude else { return false }
+
+        // Must stand out above the spectral noise floor (SNR check)
+        let snr = medianMag > 0 ? peakMag / medianMag : peakMag
+        return snr >= Self.snrThreshold
+    }
+
+    private func median(_ values: [Float]) -> Float {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let mid = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[mid - 1] + sorted[mid]) / 2.0
+        }
+        return sorted[mid]
     }
 }
 #endif

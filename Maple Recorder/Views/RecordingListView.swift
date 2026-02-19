@@ -7,6 +7,7 @@ struct RecordingListView: View {
     @Bindable var settingsManager: SettingsManager
     @Bindable var promptStore: PromptStore
     var autoProcessor: AutoProcessor?
+    var calendarManager: CalendarManager?
     #endif
     #if os(macOS)
     var miniRecordingController: MiniRecordingController?
@@ -294,19 +295,7 @@ struct RecordingListView: View {
     // MARK: - Record FAB
 
     private var recordFAB: some View {
-        VStack(spacing: 0) {
-            #if os(macOS)
-            if !recorder.isRecording {
-                Toggle(isOn: $recorder.includeSystemAudio) {
-                    Label("Include system audio", systemImage: "speaker.wave.2")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textSecondary)
-                }
-                .toggleStyle(.checkbox)
-                .padding(.bottom, 8)
-            }
-            #endif
-
+        VStack(spacing: 8) {
             Button {
                 startRecording()
             } label: {
@@ -318,8 +307,33 @@ struct RecordingListView: View {
                     .shadow(color: MapleTheme.primary.opacity(0.3), radius: 8, y: 4)
             }
             .buttonStyle(.plain)
+
+            #if os(macOS)
+            if !recorder.isRecording {
+                Toggle(isOn: $recorder.includeSystemAudio) {
+                    Label("Include system audio", systemImage: "speaker.wave.2")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+                .toggleStyle(.checkbox)
+            }
+            #endif
         }
         .padding(.bottom, 24)
+        .padding(.top, 16)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                colors: [
+                    MapleTheme.background.opacity(0),
+                    MapleTheme.background.opacity(0.8),
+                    MapleTheme.background
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(.container, edges: .bottom)
+        )
     }
 
     // MARK: - Recording Overlay
@@ -400,10 +414,22 @@ struct RecordingListView: View {
         guard !result.micURLs.isEmpty else { return }
 
         let now = Date()
+        let title: String
+        #if !os(watchOS)
+        if let meetingTitle = calendarManager?.currentMeetingTitle() {
+            title = meetingTitle
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            title = "Recording \(formatter.string(from: now))"
+        }
+        #else
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        let title = "Recording \(formatter.string(from: now))"
+        title = "Recording \(formatter.string(from: now))"
+        #endif
 
         // Copy all mic chunk files to recordings directory
         var audioFileNames: [String] = []

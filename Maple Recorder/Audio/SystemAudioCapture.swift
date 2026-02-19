@@ -5,7 +5,7 @@ import Observation
 import ScreenCaptureKit
 
 @Observable
-final class SystemAudioCapture: NSObject, @unchecked Sendable {
+final class SystemAudioCapture: NSObject, @unchecked Sendable, SCStreamDelegate {
     var isCapturing = false
     var permissionGranted = false
 
@@ -16,6 +16,15 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable {
 
     /// Callback invoked on each captured audio buffer
     var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
+
+    /// Called when the stream encounters a fatal error (disconnect, permission revoked, etc.)
+    var onStreamError: ((Error) -> Void)?
+
+    // Reconnection state
+    private var isReconnecting = false
+    private var reconnectAttempts = 0
+    private static let maxReconnectAttempts = 3
+    private static let reconnectDelay: TimeInterval = 1.0
 
     func checkPermission() async {
         do {
@@ -57,21 +66,65 @@ final class SystemAudioCapture: NSObject, @unchecked Sendable {
         }
         self.streamOutput = output
 
-        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
 
         self.stream = stream
         self.isCapturing = true
+        self.reconnectAttempts = 0
     }
 
     func stopCapture() async {
+        isReconnecting = false
         if let stream {
             try? await stream.stopCapture()
         }
         stream = nil
         streamOutput = nil
         isCapturing = false
+    }
+
+    // MARK: - SCStreamDelegate
+
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: Error) {
+        print("[SystemAudioCapture] Stream stopped with error: \(error.localizedDescription)")
+        Task { @MainActor [weak self] in
+            guard let self, self.isCapturing, !self.isReconnecting else { return }
+            self.isCapturing = false
+            await self.attemptReconnect()
+        }
+    }
+
+    @MainActor
+    private func attemptReconnect() async {
+        guard reconnectAttempts < Self.maxReconnectAttempts else {
+            print("[SystemAudioCapture] Max reconnect attempts reached, giving up")
+            onStreamError?(SystemAudioCaptureError.streamDisconnected)
+            return
+        }
+
+        isReconnecting = true
+        reconnectAttempts += 1
+        print("[SystemAudioCapture] Attempting reconnect (\(reconnectAttempts)/\(Self.maxReconnectAttempts))...")
+
+        // Brief delay before reconnecting
+        try? await Task.sleep(for: .seconds(Self.reconnectDelay))
+        guard isReconnecting else { return } // stopCapture was called during delay
+
+        // Clean up old stream
+        stream = nil
+        streamOutput = nil
+
+        do {
+            try await startCapture()
+            print("[SystemAudioCapture] Reconnected successfully")
+            isReconnecting = false
+        } catch {
+            print("[SystemAudioCapture] Reconnect failed: \(error.localizedDescription)")
+            isReconnecting = false
+            await attemptReconnect()
+        }
     }
 }
 
@@ -126,11 +179,13 @@ private final class AudioStreamOutput: NSObject, SCStreamOutput, Sendable {
 enum SystemAudioCaptureError: LocalizedError {
     case noDisplay
     case permissionDenied
+    case streamDisconnected
 
     var errorDescription: String? {
         switch self {
         case .noDisplay: "No display found for audio capture."
         case .permissionDenied: "Screen Recording permission is required to capture system audio."
+        case .streamDisconnected: "System audio stream disconnected and could not reconnect."
         }
     }
 }
