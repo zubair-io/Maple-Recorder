@@ -44,7 +44,6 @@ struct Maple_RecorderApp: App {
                 syncMonitor = monitor
 
                 await modelManager.ensureModelsReady()
-                await calendarManager.requestAccess()
 
                 let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
                 autoProcessor = processor
@@ -74,7 +73,6 @@ struct Maple_RecorderApp: App {
                 syncMonitor = monitor
 
                 await modelManager.ensureModelsReady()
-                await calendarManager.requestAccess()
 
                 let processor = AutoProcessor(store: store, modelManager: modelManager, settingsManager: settingsManager)
                 autoProcessor = processor

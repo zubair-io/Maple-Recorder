@@ -68,7 +68,7 @@ enum MarkdownSerializer {
         guard let titleLine = lines.first(where: { $0.hasPrefix("# ") }) else {
             return nil
         }
-        let title = String(titleLine.dropFirst(2))
+        let title = RecordingStore.stripMarkdown(String(titleLine.dropFirst(2)))
 
         // Find the JSON block
         let jsonStartMarkers = ["~~~json", "```json"]

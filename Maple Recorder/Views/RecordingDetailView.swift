@@ -168,6 +168,9 @@ struct RecordingDetailView: View {
                     editableTitle = rec.title
                 }
             }
+            .onChange(of: recording.title) { _, newTitle in
+                editableTitle = newTitle
+            }
             #endif
             .task {
                 let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }

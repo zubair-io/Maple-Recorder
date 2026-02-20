@@ -406,9 +406,15 @@ struct QuickRecordView: View {
 
         let now = Date()
         let title: String
-        if let meetingTitle = calendarManager?.currentMeetingTitle() {
-            title = meetingTitle
-        } else {
+        let calTitle = (settingsManager.calendarEnabled)
+            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
+            : nil
+        switch settingsManager.calendarTitleMode {
+        case .exactName where calTitle != nil:
+            title = calTitle!
+        case .hint where calTitle != nil:
+            title = "\(calTitle!) — Recording"
+        default:
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .short

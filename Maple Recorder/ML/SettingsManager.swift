@@ -74,6 +74,32 @@ final class SettingsManager {
         }
     }
 
+    // MARK: - Calendar Settings
+
+    var calendarEnabled: Bool {
+        get { settings.calendarEnabled }
+        set {
+            settings.calendarEnabled = newValue
+            try? save()
+        }
+    }
+
+    var calendarTitleMode: CalendarTitleMode {
+        get { settings.calendarTitleMode }
+        set {
+            settings.calendarTitleMode = newValue
+            try? save()
+        }
+    }
+
+    var selectedCalendarIdentifiers: [String] {
+        get { settings.selectedCalendarIdentifiers }
+        set {
+            settings.selectedCalendarIdentifiers = newValue
+            try? save()
+        }
+    }
+
     // MARK: - Persistence
 
     private static var settingsURL: URL {

@@ -126,10 +126,35 @@ final class RecordingStore {
         updated.summary = result.summary
         updated.tags = result.tags
         if !result.generatedTitle.isEmpty {
-            updated.title = result.generatedTitle
+            updated.title = Self.stripMarkdown(result.generatedTitle)
         }
         updated.modifiedAt = Date()
         try save(updated)
     }
     #endif
+
+    /// Strips common markdown formatting from a title string.
+    static func stripMarkdown(_ text: String) -> String {
+        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Remove leading heading markers (### Title → Title)
+        while result.hasPrefix("#") {
+            result = String(result.dropFirst())
+        }
+        result = result.trimmingCharacters(in: .whitespaces)
+        // Remove bold/italic markers (**text** → text, *text* → text)
+        result = result.replacingOccurrences(of: "**", with: "")
+        result = result.replacingOccurrences(of: "__", with: "")
+        // Only strip single * or _ if they appear as wrapping pairs
+        if result.hasPrefix("*") && result.hasSuffix("*") && result.count > 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+        if result.hasPrefix("_") && result.hasSuffix("_") && result.count > 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+        // Remove surrounding quotes
+        if result.hasPrefix("\"") && result.hasSuffix("\"") && result.count > 2 {
+            result = String(result.dropFirst().dropLast())
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

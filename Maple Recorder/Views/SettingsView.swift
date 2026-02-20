@@ -1,9 +1,11 @@
 #if !os(watchOS)
+import EventKit
 import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settingsManager: SettingsManager
     @Bindable var promptStore: PromptStore
+    var calendarManager: CalendarManager?
     @State private var claudeKey: String = ""
     @State private var openAIKey: String = ""
     @State private var showingAddPrompt = false
@@ -13,95 +15,18 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                // LLM Provider
-                Section("LLM Provider") {
-                    Picker("Provider", selection: $settingsManager.preferredProvider) {
-                        Text("Apple On-Device").tag(LLMProvider.appleFoundationModels)
-                        Text("Claude (Cloud)").tag(LLMProvider.claude)
-                        Text("OpenAI (Cloud)").tag(LLMProvider.openai)
-                        Text("Off").tag(LLMProvider.none)
-                    }
-
-                    if settingsManager.preferredProvider == .appleFoundationModels {
-                        Label("Runs entirely on-device — audio and text never leave your device.", systemImage: "lock.shield.fill")
-                            .font(.caption)
-                            .foregroundStyle(MapleTheme.success)
-                    }
+            ScrollView {
+                VStack(spacing: 20) {
+                    summarizerSection
+                    apiKeysSection
+                    recordingSection
+                    calendarSection
+                    promptsSection
                 }
-
-                // API Keys
-                if settingsManager.preferredProvider == .claude || settingsManager.preferredProvider == .openai {
-                    Section {
-                        if settingsManager.preferredProvider == .claude {
-                            SecureField("Claude API Key", text: $claudeKey)
-                                .textContentType(.password)
-                                .autocorrectionDisabled()
-                                .onChange(of: claudeKey) { _, newValue in
-                                    settingsManager.claudeAPIKey = newValue
-                                }
-                        }
-                        if settingsManager.preferredProvider == .openai {
-                            SecureField("OpenAI API Key", text: $openAIKey)
-                                .textContentType(.password)
-                                .autocorrectionDisabled()
-                                .onChange(of: openAIKey) { _, newValue in
-                                    settingsManager.openAIAPIKey = newValue
-                                }
-                        }
-                    } header: {
-                        Text("API Keys")
-                    } footer: {
-                        Text("Keys are stored securely in your device's Keychain and never synced to iCloud.")
-                    }
-                }
-
-                // Recording
-                Section("Recording") {
-                    Toggle("Auto-stop on silence", isOn: $settingsManager.autoStopOnSilenceEnabled)
-
-                    if settingsManager.autoStopOnSilenceEnabled {
-                        Stepper(
-                            "After \(settingsManager.autoStopSilenceMinutes) min of silence",
-                            value: $settingsManager.autoStopSilenceMinutes,
-                            in: 1...30
-                        )
-                    }
-
-                    #if os(macOS)
-                    Toggle("Auto-stop on meeting end chime", isOn: $settingsManager.endCallDetectionEnabled)
-                    #endif
-                }
-
-                // Custom Prompts
-                Section {
-                    ForEach(promptStore.prompts) { prompt in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(prompt.name)
-                                .font(.headline)
-                            Text(prompt.systemPrompt)
-                                .font(.caption)
-                                .foregroundStyle(MapleTheme.textSecondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .onDelete { indices in
-                        for index in indices {
-                            try? promptStore.delete(promptStore.prompts[index])
-                        }
-                    }
-
-                    Button {
-                        showingAddPrompt = true
-                    } label: {
-                        Label("Add Prompt", systemImage: "plus")
-                    }
-                } header: {
-                    Text("Custom Prompts")
-                } footer: {
-                    Text("Prompts sync across your devices via iCloud.")
-                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
             }
+            .background(MapleTheme.background)
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -137,6 +62,421 @@ struct SettingsView: View {
                 Text("Enter a name and system prompt for your custom prompt.")
             }
         }
+    }
+
+    // MARK: - Summarizer
+
+    private var summarizerSection: some View {
+        SettingsCard {
+            SettingsSectionHeader(icon: "brain", title: "Summarization")
+
+            Picker(selection: $settingsManager.preferredProvider) {
+                Label("Apple On-Device", systemImage: "apple.logo")
+                    .tag(LLMProvider.appleFoundationModels)
+                Label("Claude", systemImage: "cloud")
+                    .tag(LLMProvider.claude)
+                Label("OpenAI", systemImage: "cloud")
+                    .tag(LLMProvider.openai)
+                Label("Off", systemImage: "xmark.circle")
+                    .tag(LLMProvider.none)
+            } label: {
+                Text("Provider")
+            }
+            .pickerStyle(.menu)
+
+            if settingsManager.preferredProvider == .appleFoundationModels {
+                Label {
+                    Text("Runs entirely on-device — audio and text never leave your device.")
+                        .font(.caption)
+                } icon: {
+                    Image(systemName: "lock.shield.fill")
+                }
+                .foregroundStyle(MapleTheme.success)
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    // MARK: - API Keys
+
+    @ViewBuilder
+    private var apiKeysSection: some View {
+        if settingsManager.preferredProvider == .claude || settingsManager.preferredProvider == .openai {
+            SettingsCard {
+                SettingsSectionHeader(icon: "key", title: "API Keys")
+
+                if settingsManager.preferredProvider == .claude {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Claude API Key")
+                            .font(.caption)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                        SecureField("sk-ant-...", text: $claudeKey)
+                            .textFieldStyle(.roundedBorder)
+                            .textContentType(.password)
+                            .autocorrectionDisabled()
+                            .onChange(of: claudeKey) { _, newValue in
+                                settingsManager.claudeAPIKey = newValue
+                            }
+                    }
+                }
+
+                if settingsManager.preferredProvider == .openai {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("OpenAI API Key")
+                            .font(.caption)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                        SecureField("sk-...", text: $openAIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .textContentType(.password)
+                            .autocorrectionDisabled()
+                            .onChange(of: openAIKey) { _, newValue in
+                                settingsManager.openAIAPIKey = newValue
+                            }
+                    }
+                }
+
+                Text("Stored in your device's Keychain. Never synced to iCloud.")
+                    .font(.caption2)
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    // MARK: - Recording
+
+    private var recordingSection: some View {
+        SettingsCard {
+            SettingsSectionHeader(icon: "mic", title: "Recording")
+
+            Toggle(isOn: $settingsManager.autoStopOnSilenceEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-stop on silence")
+                    if settingsManager.autoStopOnSilenceEnabled {
+                        Text("After \(settingsManager.autoStopSilenceMinutes) min of no speech")
+                            .font(.caption)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                }
+            }
+            .tint(MapleTheme.primary)
+
+            if settingsManager.autoStopOnSilenceEnabled {
+                Stepper(
+                    value: $settingsManager.autoStopSilenceMinutes,
+                    in: 1...30
+                ) {
+                    HStack {
+                        Text("Silence timeout")
+                        Spacer()
+                        Text("\(settingsManager.autoStopSilenceMinutes) min")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                }
+            }
+
+            #if os(macOS)
+            Divider()
+                .padding(.vertical, 4)
+
+            Toggle(isOn: $settingsManager.endCallDetectionEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-stop on meeting end chime")
+                    Text("Detects the Google Meet end-call sound")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+            }
+            .tint(MapleTheme.primary)
+            #endif
+        }
+    }
+
+    // MARK: - Calendar
+
+    private var calendarSection: some View {
+        SettingsCard {
+            SettingsSectionHeader(icon: "calendar", title: "Calendar")
+
+            if let calendarManager {
+                calendarContent(calendarManager)
+            } else {
+                Text("Calendar integration unavailable")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func calendarContent(_ manager: CalendarManager) -> some View {
+        let isConnected = settingsManager.calendarEnabled && manager.authorizationStatus == .fullAccess
+
+        // Connect / Disconnect button
+        if isConnected {
+            HStack {
+                Label {
+                    Text("Connected")
+                        .font(.subheadline)
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(MapleTheme.success)
+                }
+
+                Spacer()
+
+                Button("Disconnect") {
+                    settingsManager.calendarEnabled = false
+                    manager.disconnectAccess()
+                }
+                .font(.caption)
+                .foregroundStyle(MapleTheme.error)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name recordings after the current calendar event.")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+
+                if manager.authorizationStatus == .denied {
+                    Label {
+                        Text("Calendar access was denied. Enable it in System Settings > Privacy > Calendars.")
+                            .font(.caption)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(MapleTheme.error)
+                    }
+                }
+
+                Button {
+                    Task {
+                        let granted = await manager.requestAccess()
+                        if granted {
+                            settingsManager.calendarEnabled = true
+                        }
+                    }
+                } label: {
+                    Label("Connect Calendar", systemImage: "calendar.badge.plus")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MapleTheme.primary)
+            }
+        }
+
+        // Calendar picker + title mode (only shown when connected)
+        if isConnected {
+            Divider()
+                .padding(.vertical, 4)
+
+            // Calendar picker (multi-select)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Calendars")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+
+                let allSelected = settingsManager.selectedCalendarIdentifiers.isEmpty
+
+                Button {
+                    settingsManager.selectedCalendarIdentifiers = []
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: allSelected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(allSelected ? MapleTheme.primary : MapleTheme.textSecondary)
+                            .font(.subheadline)
+                        Text("All Calendars")
+                            .font(.subheadline)
+                            .foregroundStyle(MapleTheme.textPrimary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                ForEach(manager.calendars) { cal in
+                    let isSelected = !allSelected && settingsManager.selectedCalendarIdentifiers.contains(cal.id)
+                    Button {
+                        toggleCalendar(cal.id)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(isSelected ? MapleTheme.primary : MapleTheme.textSecondary)
+                                .font(.subheadline)
+                            Circle()
+                                .fill(calendarColor(cal.color))
+                                .frame(width: 8, height: 8)
+                            Text(cal.title)
+                                .font(.subheadline)
+                                .foregroundStyle(MapleTheme.textPrimary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            // Title mode
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recording title")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+
+                Picker(selection: $settingsManager.calendarTitleMode) {
+                    Text("Use as title").tag(CalendarTitleMode.exactName)
+                    Text("Prefix with event name").tag(CalendarTitleMode.hint)
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
+
+                Text(titleModeExample)
+                    .font(.caption2)
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    private func toggleCalendar(_ id: String) {
+        var ids = settingsManager.selectedCalendarIdentifiers
+        if ids.contains(id) {
+            ids.removeAll { $0 == id }
+        } else {
+            // If switching from "All", start fresh with just this one
+            if ids.isEmpty {
+                ids = [id]
+            } else {
+                ids.append(id)
+            }
+        }
+        // If all individual calendars are now selected, revert to "All"
+        if let calendarManager, ids.count >= calendarManager.calendars.count {
+            ids = []
+        }
+        settingsManager.selectedCalendarIdentifiers = ids
+    }
+
+    private var titleModeExample: String {
+        switch settingsManager.calendarTitleMode {
+        case .off:
+            return "Calendar disabled"
+        case .hint:
+            return "e.g. \"Weekly Standup \u{2014} Recording\""
+        case .exactName:
+            return "e.g. \"Weekly Standup\""
+        }
+    }
+
+    private func calendarColor(_ cgColor: CGColor?) -> Color {
+        guard let cgColor else { return MapleTheme.primary }
+        #if os(macOS)
+        return Color(nsColor: NSColor(cgColor: cgColor) ?? .controlAccentColor)
+        #else
+        return Color(uiColor: UIColor(cgColor: cgColor))
+        #endif
+    }
+
+    // MARK: - Custom Prompts
+
+    private var promptsSection: some View {
+        SettingsCard {
+            SettingsSectionHeader(icon: "text.bubble", title: "Custom Prompts")
+
+            if promptStore.prompts.isEmpty {
+                Text("No custom prompts yet.")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(promptStore.prompts) { prompt in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(prompt.name)
+                                    .font(.subheadline.weight(.medium))
+                                Text(prompt.systemPrompt)
+                                    .font(.caption)
+                                    .foregroundStyle(MapleTheme.textSecondary)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                try? promptStore.delete(prompt)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                                    .foregroundStyle(MapleTheme.error.opacity(0.8))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 8)
+
+                        if prompt.id != promptStore.prompts.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+
+            Button {
+                showingAddPrompt = true
+            } label: {
+                Label("Add Prompt", systemImage: "plus.circle")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(MapleTheme.primary)
+            .padding(.top, 4)
+
+            Text("Prompts sync across your devices via iCloud.")
+                .font(.caption2)
+                .foregroundStyle(MapleTheme.textSecondary)
+                .padding(.top, 2)
+        }
+    }
+}
+
+// MARK: - Settings Card
+
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MapleTheme.surface, in: .rect(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(MapleTheme.border.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+}
+
+// MARK: - Section Header
+
+private struct SettingsSectionHeader: View {
+    let icon: String
+    let title: String
+
+    var body: some View {
+        Label {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(MapleTheme.textPrimary)
+        } icon: {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(MapleTheme.primary)
+        }
+        .padding(.bottom, 4)
     }
 }
 #endif

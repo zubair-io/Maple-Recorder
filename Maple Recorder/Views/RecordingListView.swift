@@ -33,7 +33,7 @@ struct RecordingListView: View {
             listContent
                 .navigationSplitViewColumnWidth(min: 350, ideal: 450, max: 600)
                 .sheet(isPresented: $showingSettings) {
-                    SettingsView(settingsManager: settingsManager, promptStore: promptStore)
+                    SettingsView(settingsManager: settingsManager, promptStore: promptStore, calendarManager: calendarManager)
                 }
         } detail: {
             detailColumn
@@ -75,7 +75,7 @@ struct RecordingListView: View {
                 }
                 #if !os(watchOS)
                 .sheet(isPresented: $showingSettings) {
-                    SettingsView(settingsManager: settingsManager, promptStore: promptStore)
+                    SettingsView(settingsManager: settingsManager, promptStore: promptStore, calendarManager: calendarManager)
                 }
                 #endif
         }
@@ -313,20 +313,22 @@ struct RecordingListView: View {
                 Toggle(isOn: $recorder.includeSystemAudio) {
                     Label("Include system audio", systemImage: "speaker.wave.2")
                         .font(.caption)
-                        .foregroundStyle(MapleTheme.textSecondary)
+                        .foregroundStyle(.white)
                 }
                 .toggleStyle(.checkbox)
             }
             #endif
         }
-        .padding(.bottom, 24)
-        .padding(.top, 16)
+        .padding(.bottom, 16)
+        .padding(.top, 10)
         .frame(maxWidth: .infinity)
         .background(
             LinearGradient(
                 colors: [
-                    MapleTheme.background.opacity(0),
-                    MapleTheme.background.opacity(0.8),
+                     MapleTheme.background.opacity(0),
+                     MapleTheme.background.opacity(0.8),
+                    MapleTheme.background.opacity(0.9),
+                    MapleTheme.background,
                     MapleTheme.background
                 ],
                 startPoint: .top,
@@ -416,9 +418,15 @@ struct RecordingListView: View {
         let now = Date()
         let title: String
         #if !os(watchOS)
-        if let meetingTitle = calendarManager?.currentMeetingTitle() {
-            title = meetingTitle
-        } else {
+        let calTitle = settingsManager.calendarEnabled
+            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
+            : nil
+        switch settingsManager.calendarTitleMode {
+        case .exactName where calTitle != nil:
+            title = calTitle!
+        case .hint where calTitle != nil:
+            title = "\(calTitle!) — Recording"
+        default:
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .short
