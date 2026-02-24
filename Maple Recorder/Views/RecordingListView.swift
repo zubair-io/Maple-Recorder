@@ -110,11 +110,7 @@ struct RecordingListView: View {
         }
         .background(MapleTheme.background)
         .overlay(alignment: .bottom) {
-            if recorder.isRecording {
-                recordingOverlay
-            } else {
-                recordFAB
-            }
+            recordFAB
         }
     }
 
@@ -296,28 +292,43 @@ struct RecordingListView: View {
 
     private var recordFAB: some View {
         VStack(spacing: 8) {
-            Button {
-                startRecording()
-            } label: {
-                Image(systemName: "mic.fill")
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(MapleTheme.primary, in: .circle)
-                    .shadow(color: MapleTheme.primary.opacity(0.3), radius: 8, y: 4)
-            }
-            .buttonStyle(.plain)
+            ZStack {
+                if recorder.isRecording {
+                    PulsingWaveform(audioLevel: recorder.audioLevel)
+                }
 
-            #if os(macOS)
-            if !recorder.isRecording {
+                Button {
+                    if recorder.isRecording {
+                        stopRecording()
+                    } else {
+                        startRecording()
+                    }
+                } label: {
+                    Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(MapleTheme.primary, in: .circle)
+                        .shadow(color: MapleTheme.primary.opacity(0.3), radius: 8, y: 4)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(width: 64, height: 64)
+
+            if recorder.isRecording {
+                Text(formatTime(recorder.elapsedTime))
+                    .font(.system(.caption, design: .monospaced, weight: .medium))
+                    .foregroundStyle(.white)
+            } else {
+                #if os(macOS)
                 Toggle(isOn: $recorder.includeSystemAudio) {
                     Label("Include system audio", systemImage: "speaker.wave.2")
                         .font(.caption)
                         .foregroundStyle(.white)
                 }
                 .toggleStyle(.checkbox)
+                #endif
             }
-            #endif
         }
         .padding(.bottom, 16)
         .padding(.top, 10)
@@ -325,8 +336,8 @@ struct RecordingListView: View {
         .background(
             LinearGradient(
                 colors: [
-                     MapleTheme.background.opacity(0),
-                     MapleTheme.background.opacity(0.8),
+                    MapleTheme.background.opacity(0),
+                    MapleTheme.background.opacity(0.8),
                     MapleTheme.background.opacity(0.9),
                     MapleTheme.background,
                     MapleTheme.background
@@ -335,48 +346,6 @@ struct RecordingListView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea(.container, edges: .bottom)
-        )
-    }
-
-    // MARK: - Recording Overlay
-
-    private var recordingOverlay: some View {
-        VStack(spacing: 12) {
-            Text(formatTime(recorder.elapsedTime))
-                .font(.system(.title3, design: .monospaced))
-                .foregroundStyle(MapleTheme.textPrimary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(MapleTheme.surfaceAlt, in: .capsule)
-
-            ZStack {
-                PulsingWaveform(audioLevel: recorder.audioLevel)
-
-                Button {
-                    stopRecording()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                        .frame(width: 64, height: 64)
-                        .background(MapleTheme.error, in: .circle)
-                        .shadow(color: MapleTheme.error.opacity(0.3), radius: 8, y: 4)
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(width: 64, height: 64)
-        }
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity)
-        .background(
-            Rectangle()
-                .fill(MapleTheme.surface)
-                .shadow(color: .black.opacity(0.08), radius: 12, y: -4)
-                .mask(alignment: .top) {
-                    UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20)
-                        .frame(height: 500)
-                }
-                .ignoresSafeArea(.container, edges: .bottom)
         )
     }
 
