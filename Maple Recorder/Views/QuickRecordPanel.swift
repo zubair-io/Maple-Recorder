@@ -297,18 +297,8 @@ struct QuickRecordView: View {
             }
             startRecording()
         }
-        .onChange(of: recorder.autoStopTriggered) { _, triggered in
-            if triggered {
-                saveAndNotify()
-                controller.dismiss()
-            }
-        }
-        .onChange(of: recorder.endCallDetected) { _, detected in
-            if detected {
-                saveAndNotify()
-                controller.dismiss()
-            }
-        }
+
+
     }
 
     // MARK: - Centered State (200×200)
@@ -384,11 +374,6 @@ struct QuickRecordView: View {
 
     private func startRecording() {
         recorder.includeSystemAudio = controller.includeSystemAudio
-        recorder.configureAutoStop(
-            enabled: settingsManager.autoStopOnSilenceEnabled,
-            durationMinutes: settingsManager.autoStopSilenceMinutes
-        )
-        recorder.endCallDetectionEnabled = settingsManager.endCallDetectionEnabled && controller.includeSystemAudio
         Task {
             do {
                 recordingURL = try await recorder.startRecording()

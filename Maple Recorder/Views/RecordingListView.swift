@@ -45,14 +45,6 @@ struct RecordingListView: View {
                 store.pendingSelectionId = nil
             }
         }
-        .onChange(of: recorder.autoStopTriggered) { _, triggered in
-            if triggered { stopRecording() }
-        }
-        #if os(macOS)
-        .onChange(of: recorder.endCallDetected) { _, detected in
-            if detected { stopRecording() }
-        }
-        #endif
         #else
         NavigationStack {
             listContent
@@ -80,9 +72,6 @@ struct RecordingListView: View {
                 #endif
         }
         .tint(MapleTheme.primary)
-        .onChange(of: recorder.autoStopTriggered) { _, triggered in
-            if triggered { stopRecording() }
-        }
         #endif
     }
 
@@ -352,18 +341,11 @@ struct RecordingListView: View {
     // MARK: - Actions
 
     private func startRecording() {
-        #if !os(watchOS)
-        recorder.configureAutoStop(
-            enabled: settingsManager.autoStopOnSilenceEnabled,
-            durationMinutes: settingsManager.autoStopSilenceMinutes
-        )
         #if os(macOS)
-        recorder.endCallDetectionEnabled = settingsManager.endCallDetectionEnabled && recorder.includeSystemAudio
         miniRecordingController?.recorder = recorder
         miniRecordingController?.onStopRequested = { [self] in
             stopRecording()
         }
-        #endif
         #endif
         Task {
             do {

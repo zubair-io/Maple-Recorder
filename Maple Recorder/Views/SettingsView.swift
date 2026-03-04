@@ -149,47 +149,9 @@ struct SettingsView: View {
         SettingsCard {
             SettingsSectionHeader(icon: "mic", title: "Recording")
 
-            Toggle(isOn: $settingsManager.autoStopOnSilenceEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Auto-stop on silence")
-                    if settingsManager.autoStopOnSilenceEnabled {
-                        Text("After \(settingsManager.autoStopSilenceMinutes) min of no speech")
-                            .font(.caption)
-                            .foregroundStyle(MapleTheme.textSecondary)
-                    }
-                }
-            }
-            .tint(MapleTheme.primary)
-
-            if settingsManager.autoStopOnSilenceEnabled {
-                Stepper(
-                    value: $settingsManager.autoStopSilenceMinutes,
-                    in: 1...30
-                ) {
-                    HStack {
-                        Text("Silence timeout")
-                        Spacer()
-                        Text("\(settingsManager.autoStopSilenceMinutes) min")
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(MapleTheme.textSecondary)
-                    }
-                }
-            }
-
-            #if os(macOS)
-            Divider()
-                .padding(.vertical, 4)
-
-            Toggle(isOn: $settingsManager.endCallDetectionEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Auto-stop on meeting end chime")
-                    Text("Detects the Google Meet end-call sound")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textSecondary)
-                }
-            }
-            .tint(MapleTheme.primary)
-            #endif
+            Text("Audio is captured at 48 kHz / 128 kbps AAC.")
+                .font(.caption)
+                .foregroundStyle(MapleTheme.textSecondary)
         }
     }
 
