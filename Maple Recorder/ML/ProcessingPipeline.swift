@@ -28,20 +28,25 @@ final class ProcessingPipeline {
         do {
             state = .converting
             progress = "Converting audio…"
-            let micSamples: [Float]
-            if audioURLs.count == 1 {
-                micSamples = try MapleAudioConverter.loadAndResample(url: audioURLs[0])
-            } else {
-                micSamples = try MapleAudioConverter.loadAndResampleChunks(urls: audioURLs)
-            }
 
-            // Load system audio samples if present
-            let systemSamples: [Float]
-            if !systemAudioURLs.isEmpty {
-                systemSamples = try MapleAudioConverter.loadAndResampleChunks(urls: systemAudioURLs)
-            } else {
-                systemSamples = []
-            }
+            // Run blocking audio conversion off the main thread
+            let capturedAudioURLs = audioURLs
+            let capturedSystemURLs = systemAudioURLs
+            let (micSamples, systemSamples) = try await Task.detached(priority: .userInitiated) {
+                let mic: [Float]
+                if capturedAudioURLs.count == 1 {
+                    mic = try MapleAudioConverter.loadAndResample(url: capturedAudioURLs[0])
+                } else {
+                    mic = try MapleAudioConverter.loadAndResampleChunks(urls: capturedAudioURLs)
+                }
+                let sys: [Float]
+                if !capturedSystemURLs.isEmpty {
+                    sys = try MapleAudioConverter.loadAndResampleChunks(urls: capturedSystemURLs)
+                } else {
+                    sys = []
+                }
+                return (mic, sys)
+            }.value
 
             state = .transcribing
             progress = "Transcribing…"

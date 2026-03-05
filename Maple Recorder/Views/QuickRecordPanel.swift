@@ -427,6 +427,7 @@ struct QuickRecordView: View {
             title: title,
             audioFiles: audioFileNames,
             systemAudioFiles: systemAudioFileNames,
+            duration: duration,
             createdAt: now,
             modifiedAt: now
         )

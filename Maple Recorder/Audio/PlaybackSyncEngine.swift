@@ -16,7 +16,7 @@ final class PlaybackSyncEngine {
         self.player = player
         self.transcript = transcript
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.tick()
             }
@@ -45,10 +45,19 @@ final class PlaybackSyncEngine {
         let time = player.currentTime
 
         let (segId, wordId) = findActive(time: time, transcript: transcript)
-        activeSegmentId = segId
-        activeWordId = wordId
 
-        shouldAutoScroll = Date().timeIntervalSince(lastManualScrollTime) > 3.0
+        // Only update when values actually change to avoid unnecessary SwiftUI re-renders
+        if activeSegmentId != segId {
+            activeSegmentId = segId
+        }
+        if activeWordId != wordId {
+            activeWordId = wordId
+        }
+
+        let autoScroll = Date().timeIntervalSince(lastManualScrollTime) > 3.0
+        if shouldAutoScroll != autoScroll {
+            shouldAutoScroll = autoScroll
+        }
     }
 
     static func findActive(

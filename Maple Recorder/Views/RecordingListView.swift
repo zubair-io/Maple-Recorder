@@ -313,7 +313,7 @@ struct RecordingListView: View {
                 Toggle(isOn: $recorder.includeSystemAudio) {
                     Label("Include system audio", systemImage: "speaker.wave.2")
                         .font(.caption)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(MapleTheme.textPrimary)
                 }
                 .toggleStyle(.checkbox)
                 #endif
@@ -363,6 +363,7 @@ struct RecordingListView: View {
         miniRecordingController?.dismissPanel()
         #endif
 
+        let duration = recorder.elapsedTime
         let result = recorder.stopRecording()
         guard !result.micURLs.isEmpty else { return }
 
@@ -413,6 +414,7 @@ struct RecordingListView: View {
             title: title,
             audioFiles: audioFileNames,
             systemAudioFiles: systemAudioFileNames,
+            duration: duration,
             createdAt: now,
             modifiedAt: now
         )

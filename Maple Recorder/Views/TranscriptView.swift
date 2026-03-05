@@ -10,6 +10,10 @@ struct TranscriptView: View {
 
     @State private var isUserScrolling = false
 
+    private var speakerDict: [String: Speaker] {
+        Dictionary(uniqueKeysWithValues: speakers.map { ($0.id, $0) })
+    }
+
     private var filteredTranscript: [TranscriptSegment] {
         if searchQuery.isEmpty { return transcript }
         return transcript.filter {
@@ -18,19 +22,21 @@ struct TranscriptView: View {
     }
 
     var body: some View {
+        let dict = speakerDict
         ScrollViewReader { proxy in
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(filteredTranscript) { segment in
+                    let speaker = dict[segment.speakerId]
                     TranscriptRowView(
                         segment: segment,
-                        speaker: speakerFor(segment),
+                        speaker: speaker,
                         isActive: syncEngine.activeSegmentId == segment.id,
                         activeWordId: syncEngine.activeSegmentId == segment.id ? syncEngine.activeWordId : nil,
                         onTapWord: { word in
                             onSeekToWord?(word)
                         },
                         onTapSpeaker: {
-                            if let speaker = speakerFor(segment) {
+                            if let speaker {
                                 onRenameSpeaker?(speaker)
                             }
                         }
@@ -66,7 +72,4 @@ struct TranscriptView: View {
         }
     }
 
-    private func speakerFor(_ segment: TranscriptSegment) -> Speaker? {
-        speakers.first { $0.id == segment.speakerId }
-    }
 }
