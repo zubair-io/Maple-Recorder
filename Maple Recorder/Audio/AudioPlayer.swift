@@ -29,6 +29,18 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
         try loadWithSystemTracks(micURLs: urls, systemURLs: [])
     }
 
+    enum LoadError: LocalizedError {
+        case missingFile(URL)
+        case emptyFile(URL)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingFile(let url): "Audio file not found: \(url.lastPathComponent)"
+            case .emptyFile(let url): "Audio file is empty: \(url.lastPathComponent)"
+            }
+        }
+    }
+
     /// Load mic and system audio tracks for simultaneous playback
     func loadWithSystemTracks(micURLs: [URL], systemURLs: [URL]) throws {
         stopTimeUpdates()
@@ -38,6 +50,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
         // Load mic chunks
         var micOffset: TimeInterval = 0
         for url in micURLs {
+            try Self.validate(url)
             let audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer.delegate = self
             audioPlayer.enableRate = true
@@ -54,6 +67,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
         // Load system audio chunks
         var sysOffset: TimeInterval = 0
         for url in systemURLs {
+            try Self.validate(url)
             let audioPlayer = try AVAudioPlayer(contentsOf: url)
             audioPlayer.enableRate = true
             audioPlayer.prepareToPlay()
@@ -240,6 +254,13 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     }
 
     // MARK: - Private
+
+    private static func validate(_ url: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path()) else { throw LoadError.missingFile(url) }
+        let size = (try? fm.attributesOfItem(atPath: url.path())[.size] as? NSNumber)?.intValue ?? 0
+        guard size > 0 else { throw LoadError.emptyFile(url) }
+    }
 
     private func chunkIndex(for time: TimeInterval, in entries: [(player: AVAudioPlayer, startOffset: TimeInterval, fileDuration: TimeInterval)]) -> Int? {
         for (i, entry) in entries.enumerated() {

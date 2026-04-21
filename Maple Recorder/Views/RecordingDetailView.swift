@@ -566,16 +566,21 @@ struct RecordingDetailView: View {
         let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
         let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
 
-        if systemURLs.isEmpty {
-            if micURLs.count == 1 {
-                try? player.load(url: micURLs[0])
-            } else if micURLs.count > 1 {
-                try? player.loadChunks(urls: micURLs)
+        do {
+            if systemURLs.isEmpty {
+                if micURLs.count == 1 {
+                    try player.load(url: micURLs[0])
+                } else if micURLs.count > 1 {
+                    try player.loadChunks(urls: micURLs)
+                }
+            } else {
+                try player.loadWithSystemTracks(micURLs: micURLs, systemURLs: systemURLs)
             }
-        } else {
-            try? player.loadWithSystemTracks(micURLs: micURLs, systemURLs: systemURLs)
+            audioLoaded = true
+        } catch {
+            print("Failed to load audio: \(error.localizedDescription)")
+            audioLoaded = false
         }
-        audioLoaded = true
     }
 
     private func loadAudioOnDemand(recording: MapleRecording) async {

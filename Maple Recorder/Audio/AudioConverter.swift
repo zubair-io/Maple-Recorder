@@ -3,7 +3,30 @@ import FluidAudio
 import Foundation
 
 enum MapleAudioConverter {
+    enum LoadError: LocalizedError {
+        case missingFile(URL)
+        case emptyFile(URL)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingFile(let url): "Audio file not found: \(url.lastPathComponent)"
+            case .emptyFile(let url): "Audio file is empty: \(url.lastPathComponent)"
+            }
+        }
+    }
+
+    /// Verify the URL points to a readable, non-empty file.
+    /// FluidAudio / AVAudioFile will crash with a fatal precondition
+    /// (`buffer.frameCapacity != 0`) when handed a zero-length or missing file.
+    private static func validate(_ url: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path()) else { throw LoadError.missingFile(url) }
+        let size = (try? fm.attributesOfItem(atPath: url.path())[.size] as? NSNumber)?.intValue ?? 0
+        guard size > 0 else { throw LoadError.emptyFile(url) }
+    }
+
     static func loadAndResample(url: URL) throws -> [Float] {
+        try validate(url)
         let converter = AudioConverter()
         return try converter.resampleAudioFile(url)
     }
@@ -13,6 +36,7 @@ enum MapleAudioConverter {
         let converter = AudioConverter()
         var allSamples: [Float] = []
         for url in urls {
+            try validate(url)
             let samples = try converter.resampleAudioFile(url)
             allSamples.append(contentsOf: samples)
         }
