@@ -22,7 +22,7 @@ final class TranscriptionManager {
             models = try await AsrModels.downloadAndLoad(version: .v3)
         }
         let manager = AsrManager(config: .default)
-        try await manager.initialize(models: models)
+        try await manager.loadModels(models)
         self.asrManager = manager
         self.isModelReady = true
     }
