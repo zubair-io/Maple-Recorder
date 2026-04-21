@@ -25,8 +25,18 @@ struct WatchRecordingView: View {
             .sheet(isPresented: $showList) {
                 recordingsList
             }
+            .task {
+                transferManager.syncPending(recordings: store.recordings)
+            }
+            .onChange(of: store.recordings.count) { _, _ in
+                transferManager.updatePendingCount(totalRecordings: store.recordings.count)
+            }
         }
         .tint(MapleTheme.primary)
+    }
+
+    private var pendingNotDelivered: Int {
+        store.recordings.filter { !transferManager.isDelivered(recordingId: $0.id.uuidString) }.count
     }
 
     // MARK: - Idle State
@@ -79,6 +89,16 @@ struct WatchRecordingView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
+                .padding(.bottom, 4)
+            } else if pendingNotDelivered > 0 {
+                Button {
+                    transferManager.syncPending(recordings: store.recordings)
+                } label: {
+                    Label("Sync \(pendingNotDelivered) to iPhone", systemImage: "arrow.up.circle")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MapleTheme.primary)
                 .padding(.bottom, 4)
             }
         }
@@ -170,16 +190,14 @@ struct WatchRecordingView: View {
         )
         try? store.save(recording)
 
-        // Only transfer via WatchConnectivity if iCloud is unavailable
-        if FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.com.just.maple.Maple-Recorder") == nil {
-            transferManager.transferRecording(
-                fileURL: url,
-                metadata: [
-                    "title": title,
-                    "recordingId": recording.id.uuidString,
-                ]
-            )
-        }
+        // Always hand the file to WCSession — its queue persists across
+        // launches and retries in the background. iCloud may also sync,
+        // but phone-side dedupe handles overlap.
+        transferManager.transferRecording(
+            fileURL: destURL,
+            recordingId: recording.id,
+            title: title
+        )
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
