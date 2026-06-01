@@ -161,12 +161,25 @@ struct RecordingListView: View {
             #endif
 
             if filteredRecordings.isEmpty && !recorder.isRecording {
-                ContentUnavailableView(
-                    "No Recordings",
-                    systemImage: "waveform",
-                    description: Text("Tap the record button to start")
-                )
-                .padding(.top, 60)
+                if !store.hasLoadedOnce && searchText.isEmpty {
+                    // Still loading from disk — avoid a scary "No Recordings" flash.
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(MapleTheme.primary)
+                        Text("Loading recordings…")
+                            .font(.subheadline)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+                } else {
+                    ContentUnavailableView(
+                        "No Recordings",
+                        systemImage: "waveform",
+                        description: Text("Tap the record button to start")
+                    )
+                    .padding(.top, 60)
+                }
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredRecordings) { recording in
@@ -263,17 +276,18 @@ struct RecordingListView: View {
 
     @ViewBuilder
     private func recordingLink(_ recording: MapleRecording) -> some View {
-        let row = RecordingRow(recording: recording, isProcessing: isProcessing(recording))
         #if os(macOS)
-        Button { selectedRecordingId = recording.id } label: { row }
-            .buttonStyle(.plain)
-            .background(
-                selectedRecordingId == recording.id ? MapleTheme.surfaceHover : .clear,
-                in: .rect(cornerRadius: 6)
-            )
+        RecordingRowLink(
+            recording: recording,
+            isProcessing: isProcessing(recording),
+            isSelected: selectedRecordingId == recording.id,
+            onSelect: { selectedRecordingId = recording.id }
+        )
         #else
-        NavigationLink(value: recording.id) { row }
-            .buttonStyle(.plain)
+        RecordingRowLink(
+            recording: recording,
+            isProcessing: isProcessing(recording)
+        )
         #endif
     }
 
@@ -497,6 +511,50 @@ struct RecordingListView: View {
     }
 }
 
+// MARK: - Row Link (whole-cell tappable + hover highlight)
+
+private struct RecordingRowLink: View {
+    let recording: MapleRecording
+    let isProcessing: Bool
+    #if os(macOS)
+    let isSelected: Bool
+    let onSelect: () -> Void
+    #endif
+    @State private var isHovering = false
+
+    var body: some View {
+        // `.contentShape` makes the entire padded row hit-testable, not just the text.
+        let row = RecordingRow(recording: recording, isProcessing: isProcessing)
+            .contentShape(Rectangle())
+
+        #if os(macOS)
+        Button(action: onSelect) { row }
+            .buttonStyle(.plain)
+            .background(rowBackground, in: .rect(cornerRadius: 6))
+            .onHover { isHovering = $0 }
+        #elseif os(iOS)
+        NavigationLink(value: recording.id) { row }
+            .buttonStyle(.plain)
+            .background(
+                isHovering ? MapleTheme.surfaceHover.opacity(0.5) : .clear,
+                in: .rect(cornerRadius: 6)
+            )
+            .onHover { isHovering = $0 }
+        #else
+        NavigationLink(value: recording.id) { row }
+            .buttonStyle(.plain)
+        #endif
+    }
+
+    #if os(macOS)
+    private var rowBackground: Color {
+        if isSelected { return MapleTheme.surfaceHover }
+        if isHovering { return MapleTheme.surfaceHover.opacity(0.5) }
+        return .clear
+    }
+    #endif
+}
+
 // MARK: - Row
 
 private struct RecordingRow: View {
@@ -538,7 +596,7 @@ private struct RecordingRow: View {
                         .foregroundStyle(MapleTheme.textSecondary)
 
                     ForEach(recording.tags.prefix(3), id: \.self) { tag in
-                        TagPill(tag: tag)
+                        TagPill(tag: tag, maxWidth: 88)
                     }
                 }
             }
@@ -563,10 +621,22 @@ private struct RecordingRow: View {
 }
 
 extension MapleRecording: Hashable {
+    // Equality must reflect the fields shown in the UI. SwiftUI uses `==` to decide
+    // whether a row's input changed; comparing `id` alone makes it treat a row as
+    // unchanged after processing updates the title/summary/tags, so the sidebar row
+    // never re-renders. `modifiedAt` is bumped on every save and acts as a catch-all
+    // version stamp (covering transcript/speaker changes without deep array compares).
     static func == (lhs: MapleRecording, rhs: MapleRecording) -> Bool {
         lhs.id == rhs.id
+            && lhs.modifiedAt == rhs.modifiedAt
+            && lhs.title == rhs.title
+            && lhs.summary == rhs.summary
+            && lhs.duration == rhs.duration
+            && lhs.tags == rhs.tags
     }
 
+    // Hashing stays id-only: equal values always share an id, and hash collisions
+    // for same-id/different-content values are permitted.
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

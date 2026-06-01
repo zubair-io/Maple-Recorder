@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 struct RecordingDetailView: View {
     @Bindable var store: RecordingStore
@@ -23,6 +28,7 @@ struct RecordingDetailView: View {
     @State private var editableSummary = ""
     @State private var isEditingTags = false
     @State private var editableTagsText = ""
+    @State private var didCopyTranscript = false
     #endif
 
     #if !os(watchOS)
@@ -387,6 +393,18 @@ struct RecordingDetailView: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        Divider()
+                            .frame(height: 16)
+
+                        Button {
+                            copyTranscript(recording)
+                        } label: {
+                            Image(systemName: didCopyTranscript ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(didCopyTranscript ? MapleTheme.primary : MapleTheme.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy transcript")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -421,6 +439,25 @@ struct RecordingDetailView: View {
         }
         #endif
     }
+
+    #if !os(watchOS)
+    /// Copies the transcript as plain "Speaker: text" lines to the clipboard.
+    private func copyTranscript(_ recording: MapleRecording) {
+        let text = TranscriptLLM.formatTranscript(recording.transcript, speakers: recording.speakers)
+        guard !text.isEmpty else { return }
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = text
+        #endif
+        didCopyTranscript = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            didCopyTranscript = false
+        }
+    }
+    #endif
 
     // MARK: - watchOS Section Helper
 
