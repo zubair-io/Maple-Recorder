@@ -15,7 +15,7 @@ struct RecordingStoreTests {
         try? FileManager.default.removeItem(at: url)
     }
 
-    @Test func saveAndLoad() throws {
+    @Test func saveAndLoad() async throws {
         let dir = try makeTempDirectory()
         defer { cleanup(dir) }
 
@@ -31,8 +31,10 @@ struct RecordingStoreTests {
         #expect(store.recordings.count == 1)
         #expect(store.recordings[0].title == "Test Recording")
 
-        // Create a new store from the same directory to verify persistence
+        // Create a new store from the same directory to verify persistence.
+        // `reload()` runs the disk read off the main thread, so await it.
         let store2 = RecordingStore(directory: dir)
+        await store2.reload()
         #expect(store2.recordings.count == 1)
         #expect(store2.recordings[0].id == recording.id)
         #expect(store2.recordings[0].title == "Test Recording")
@@ -58,6 +60,57 @@ struct RecordingStoreTests {
         // Verify file is gone
         let mdPath = dir.appendingPathComponent("\(recording.id.uuidString).md").path()
         #expect(!FileManager.default.fileExists(atPath: mdPath))
+    }
+
+    /// Regression: the iCloud container path ("…/Mobile Documents/…") contains a
+    /// space. `URL.path()` percent-encodes it to "%20", and on macOS
+    /// `FileManager.fileExists(atPath:)` then treats that literally and fails — so
+    /// audio files were reported missing even though they were present on disk
+    /// (the "Audio file not found" transcription error). Every FileManager path
+    /// lookup in the storage/audio layers must therefore use the *decoded* path.
+    ///
+    /// This locks the contract the fix relies on: `path()` encodes the space,
+    /// `path(percentEncoded: false)` does not. If a call site ever drops the
+    /// argument and reverts to `path()`, it reintroduces the bug on macOS.
+    @Test func storagePathsMustBeDecodedNotPercentEncoded() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Mobile Documents \(UUID().uuidString)")
+        let audioURL = dir.appendingPathComponent("clip.m4a")
+
+        let encoded = audioURL.path()                      // what URL.path() yields
+        let decoded = audioURL.path(percentEncoded: false) // what FileManager needs
+
+        #expect(encoded.contains("%20"), "URL.path() should percent-encode the space")
+        #expect(!decoded.contains("%20"), "decoded path must not contain %20")
+        #expect(decoded.contains("Mobile Documents"), "decoded path must contain the literal space")
+    }
+
+    /// Integration smoke test: deleting a recording whose files live under a
+    /// spaced path actually removes the audio file (exercises the decoded-path
+    /// lookups in `RecordingStore.delete`).
+    @Test func deleteRemovesAudioInPathWithSpaces() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Mobile Documents \(UUID().uuidString)")
+        let dir = parent.appendingPathComponent("recordings")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { cleanup(parent) }
+
+        let store = RecordingStore(directory: dir)
+        let recording = MapleRecording(
+            title: "Spaced Path",
+            audioFiles: ["spaced.m4a"],
+            duration: 10.0
+        )
+        try store.save(recording)
+
+        let audioURL = dir.appendingPathComponent("spaced.m4a")
+        FileManager.default.createFile(atPath: audioURL.path(percentEncoded: false), contents: Data([0x00]))
+        #expect(FileManager.default.fileExists(atPath: audioURL.path(percentEncoded: false)))
+
+        try store.delete(recording)
+
+        // The audio file must actually be removed, not silently skipped.
+        #expect(!FileManager.default.fileExists(atPath: audioURL.path(percentEncoded: false)))
     }
 
     @Test func emptyDirectoryReturnsEmpty() throws {

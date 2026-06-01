@@ -5,10 +5,21 @@ import Observation
 final class RecordingStore {
     var recordings: [MapleRecording] = []
 
+    /// True while a reload is in flight. `hasLoadedOnce` becomes true after the
+    /// first load completes — the UI uses it to show a loading state instead of the
+    /// empty "No Recordings" view before recordings have finished loading from disk.
+    private(set) var isLoading = false
+    private(set) var hasLoadedOnce = false
+
     /// Set by quick record to tell the main UI which recording to select.
     var pendingSelectionId: UUID?
 
     private let fileManager = FileManager.default
+
+    /// Bumped on every in-memory mutation (`save`/`delete`). A reload that started
+    /// before a mutation must not clobber the newer in-memory state with its stale
+    /// disk snapshot — see `reload()`.
+    private var mutationGeneration = 0
 
     init() {
         StorageLocation.migrateLocalToICloudIfNeeded()
@@ -16,13 +27,14 @@ final class RecordingStore {
         loadRecordings()
     }
 
-    // For testing with a custom directory
+    // For testing with a custom directory. Does not auto-load — tests call
+    // `await reload()` explicitly so loading is deterministic (the async reload
+    // would otherwise race with synchronous `save` calls in the same test).
     init(directory: URL) {
         self.overrideDirectory = directory
-        if !fileManager.fileExists(atPath: directory.path()) {
+        if !fileManager.fileExists(atPath: directory.path(percentEncoded: false)) {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        loadRecordings()
     }
 
     private var overrideDirectory: URL?
@@ -31,19 +43,51 @@ final class RecordingStore {
         overrideDirectory ?? StorageLocation.recordingsURL
     }
 
+    /// Trigger a reload. Fire-and-forget; the heavy work runs off the main thread.
     func loadRecordings() {
+        Task { await reload() }
+    }
+
+    /// Reload recordings from disk. Directory scan, file reads, and JSON
+    /// deserialization run off the main thread — the on-disk library can be tens of
+    /// MB across many files, and doing this on the main actor (at launch and on every
+    /// iCloud change via `ICloudSyncMonitor`) freezes the UI. Only the final
+    /// assignment to `recordings` happens back on the main actor.
+    func reload() async {
+        let url = recordingsURL
+        isLoading = true
+        defer {
+            isLoading = false
+            hasLoadedOnce = true
+        }
+        while true {
+            let generation = mutationGeneration
+            let loaded = await Task.detached(priority: .userInitiated) {
+                Self.readRecordingsFromDisk(at: url)
+            }.value
+            // If a save/delete raced with the read, its newer state would be lost by
+            // assigning this snapshot. Re-read (disk now reflects the mutation) until
+            // no mutation occurs during the read.
+            if mutationGeneration == generation {
+                recordings = loaded
+                return
+            }
+        }
+    }
+
+    nonisolated private static func readRecordingsFromDisk(at recordingsURL: URL) -> [MapleRecording] {
+        let fileManager = FileManager.default
         guard let files = try? fileManager.contentsOfDirectory(
             at: recordingsURL,
             includingPropertiesForKeys: [.contentModificationDateKey, .ubiquitousItemDownloadingStatusKey],
             options: .skipsHiddenFiles
         ) else {
-            recordings = []
-            return
+            return []
         }
 
         let mdFiles = files.filter { $0.pathExtension == "md" }
 
-        recordings = mdFiles
+        return mdFiles
             .compactMap { url -> MapleRecording? in
                 // Skip iCloud placeholders — don't block waiting for download
                 if !ICloudFileDownloader.isDownloaded(url: url) {
@@ -72,29 +116,31 @@ final class RecordingStore {
             recordings.append(recording)
             recordings.sort { $0.createdAt > $1.createdAt }
         }
+        mutationGeneration += 1
     }
 
     func delete(_ recording: MapleRecording) throws {
         let mdURL = recordingsURL.appendingPathComponent("\(recording.id.uuidString).md")
-        if fileManager.fileExists(atPath: mdURL.path()) {
+        if fileManager.fileExists(atPath: mdURL.path(percentEncoded: false)) {
             try fileManager.removeItem(at: mdURL)
         }
 
         for audioFile in recording.audioFiles {
             let audioURL = recordingsURL.appendingPathComponent(audioFile)
-            if fileManager.fileExists(atPath: audioURL.path()) {
+            if fileManager.fileExists(atPath: audioURL.path(percentEncoded: false)) {
                 try fileManager.removeItem(at: audioURL)
             }
         }
 
         for audioFile in recording.systemAudioFiles {
             let audioURL = recordingsURL.appendingPathComponent(audioFile)
-            if fileManager.fileExists(atPath: audioURL.path()) {
+            if fileManager.fileExists(atPath: audioURL.path(percentEncoded: false)) {
                 try fileManager.removeItem(at: audioURL)
             }
         }
 
         recordings.removeAll { $0.id == recording.id }
+        mutationGeneration += 1
     }
 
     func update(_ recording: MapleRecording) throws {

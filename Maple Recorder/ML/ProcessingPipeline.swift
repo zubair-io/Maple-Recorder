@@ -13,8 +13,12 @@ enum ProcessingState: Sendable {
     case failed(String)
 }
 
+/// `nonisolated` so the heavy ASR/diarization/merge work runs off the main actor.
+/// The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would
+/// otherwise pin this whole pipeline — including `mixSamples` and `TranscriptMerger`
+/// over millions of samples — to the main thread and freeze the UI during processing.
 @Observable
-final class ProcessingPipeline {
+nonisolated final class ProcessingPipeline {
     var state: ProcessingState = .idle
     var progress: String = ""
 
@@ -29,24 +33,22 @@ final class ProcessingPipeline {
             state = .converting
             progress = "Converting audio…"
 
-            // Run blocking audio conversion off the main thread
+            // Run blocking audio conversion off the main thread (GCD global queue —
+            // see `runOffMain`; `Task.detached` is not reliably off-main here).
             let capturedAudioURLs = audioURLs
             let capturedSystemURLs = systemAudioURLs
-            let (micSamples, systemSamples) = try await Task.detached(priority: .userInitiated) {
+            let (micSamples, systemSamples) = try await runOffMain { () -> ([Float], [Float]) in
                 let mic: [Float]
                 if capturedAudioURLs.count == 1 {
                     mic = try MapleAudioConverter.loadAndResample(url: capturedAudioURLs[0])
                 } else {
                     mic = try MapleAudioConverter.loadAndResampleChunks(urls: capturedAudioURLs)
                 }
-                let sys: [Float]
-                if !capturedSystemURLs.isEmpty {
-                    sys = try MapleAudioConverter.loadAndResampleChunks(urls: capturedSystemURLs)
-                } else {
-                    sys = []
-                }
+                let sys: [Float] = capturedSystemURLs.isEmpty
+                    ? []
+                    : try MapleAudioConverter.loadAndResampleChunks(urls: capturedSystemURLs)
                 return (mic, sys)
-            }.value
+            }
 
             state = .transcribing
             progress = "Transcribing…"
@@ -63,8 +65,11 @@ final class ProcessingPipeline {
                 asrSegments = mapASRResult(asr)
                 diaSegments = mapDiarizationResult(dia)
             } else {
-                // Two-track path: mix for ASR, diarize each track independently
-                let combinedSamples = MapleAudioConverter.mixSamples(micSamples, systemSamples)
+                // Two-track path: mix for ASR, diarize each track independently.
+                // Mixing iterates millions of samples — keep it off the main thread.
+                let combinedSamples = try await runOffMain {
+                    MapleAudioConverter.mixSamples(micSamples, systemSamples)
+                }
 
                 async let asrResult = transcriptionManager.transcribe(combinedSamples)
                 async let micDiaResult = diarizationManager.diarize(micSamples)
@@ -87,7 +92,9 @@ final class ProcessingPipeline {
             state = .merging
             progress = "Aligning transcript…"
 
-            let merged = TranscriptMerger.merge(asrSegments: asrSegments, diarizationSegments: diaSegments)
+            let merged = try await runOffMain {
+                TranscriptMerger.merge(asrSegments: asrSegments, diarizationSegments: diaSegments)
+            }
 
             // Summarize and generate title if provider is configured
             var summary = ""
@@ -113,6 +120,28 @@ final class ProcessingPipeline {
             state = .failed(error.localizedDescription)
             progress = ""
             throw error
+        }
+    }
+
+    // MARK: - Off-main execution
+
+    /// Runs CPU-bound work on a GCD global queue and awaits the result.
+    ///
+    /// The project builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`, under which
+    /// `nonisolated`/`Task.detached` async work can still run on the main actor's
+    /// executor. A GCD global queue never runs on the main thread, so this reliably
+    /// keeps heavy synchronous work (audio resampling, mixing, transcript merge) off
+    /// the UI thread. Confirmed via a main-thread `sample` that showed resampling
+    /// pegging the main thread from inside a `Task.detached` block.
+    nonisolated private func runOffMain<T: Sendable>(_ work: @Sendable @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try work())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 

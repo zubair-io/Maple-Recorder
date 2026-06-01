@@ -3,8 +3,10 @@ import FluidAudio
 import Foundation
 import Observation
 
+// `nonisolated` so FluidAudio diarization runs off the main actor (the project
+// defaults unmarked types to `@MainActor`, which would block the UI).
 @Observable
-final class DiarizationManager {
+nonisolated final class DiarizationManager {
     var isModelReady = false
     var isDiarizing = false
 
