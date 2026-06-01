@@ -26,7 +26,7 @@ enum StorageLocation {
 
     static func ensureDirectoryExists() throws {
         let url = recordingsURL
-        if !FileManager.default.fileExists(atPath: url.path()) {
+        if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
     }
@@ -41,7 +41,7 @@ enum StorageLocation {
 
         // Nothing to migrate if same path or local folder doesn't exist
         guard localURL != iCloudURL,
-              FileManager.default.fileExists(atPath: localURL.path()) else { return }
+              FileManager.default.fileExists(atPath: localURL.path(percentEncoded: false)) else { return }
 
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: localURL,
@@ -50,14 +50,14 @@ enum StorageLocation {
         ), !files.isEmpty else { return }
 
         // Ensure iCloud destination exists
-        if !FileManager.default.fileExists(atPath: iCloudURL.path()) {
+        if !FileManager.default.fileExists(atPath: iCloudURL.path(percentEncoded: false)) {
             try? FileManager.default.createDirectory(at: iCloudURL, withIntermediateDirectories: true)
         }
 
         for file in files {
             let dest = iCloudURL.appendingPathComponent(file.lastPathComponent)
             // Skip if a file with the same name already exists in iCloud
-            guard !FileManager.default.fileExists(atPath: dest.path()) else { continue }
+            guard !FileManager.default.fileExists(atPath: dest.path(percentEncoded: false)) else { continue }
             do {
                 try FileManager.default.moveItem(at: file, to: dest)
             } catch {

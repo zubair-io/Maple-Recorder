@@ -54,7 +54,7 @@ final class PromptStore {
         let data = try encoder.encode(prompts)
 
         let directory = promptsURL.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: directory.path()) {
+        if !fileManager.fileExists(atPath: directory.path(percentEncoded: false)) {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 

@@ -67,7 +67,7 @@ final class WatchTransferManager: NSObject, WCSessionDelegate, @unchecked Sendab
                   let fileName = recording.audioFiles.first else { continue }
 
             let url = StorageLocation.recordingsURL.appendingPathComponent(fileName)
-            guard FileManager.default.fileExists(atPath: url.path()) else { continue }
+            guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
 
             enqueue(fileURL: url, recordingId: idString, title: recording.title)
             queued += 1
