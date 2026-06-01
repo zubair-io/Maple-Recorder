@@ -170,8 +170,17 @@ struct RecordingDetailView: View {
                 editableTitle = recording.title
             }
             .onChange(of: recordingId) {
+                // On macOS the detail column reuses this view when the selection
+                // changes, so the audio player would keep playing the previous
+                // recording. Tear it down and load the newly selected recording.
+                syncEngine.stop()
+                player.pause()
+                player.seek(to: 0)
+                audioLoaded = false
+                isLoadingAudio = false
                 if let rec = store.recordings.first(where: { $0.id == recordingId }) {
                     editableTitle = rec.title
+                    loadAudioIfLocal(recording: rec)
                 }
             }
             .onChange(of: recording.title) { _, newTitle in
@@ -179,12 +188,7 @@ struct RecordingDetailView: View {
             }
             #endif
             .task {
-                let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-                let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-                let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
-                if allLocal && !micURLs.isEmpty {
-                    loadAudioSync(recording: recording)
-                }
+                loadAudioIfLocal(recording: recording)
             }
         } else {
             ContentUnavailableView(
@@ -598,6 +602,18 @@ struct RecordingDetailView: View {
     #endif
 
     // MARK: - Audio
+
+    /// Eagerly load the recording's audio if all files are already downloaded
+    /// locally (otherwise playback loads on demand). Shared by initial appearance
+    /// and switching recordings.
+    private func loadAudioIfLocal(recording: MapleRecording) {
+        let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
+        if allLocal && !micURLs.isEmpty {
+            loadAudioSync(recording: recording)
+        }
+    }
 
     private func loadAudioSync(recording: MapleRecording) {
         let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
