@@ -34,11 +34,6 @@ enum Summarizer {
         write a flowing paragraph. Be specific about who said what when relevant.
         """
 
-    /// Maximum character count per chunk. Apple Foundation Models has a limited context,
-    /// so we keep chunks conservative. Cloud providers could handle more but we use
-    /// the same limit for consistency.
-    private static let maxChunkCharacters = 12_000
-
     static func summarize(
         transcript: [TranscriptSegment],
         speakers: [Speaker],
@@ -48,95 +43,20 @@ enum Summarizer {
             return SummaryResult(title: "", tags: [], summary: "")
         }
         guard service.isAvailable else { return SummaryResult(title: "", tags: [], summary: "") }
-
-        let transcriptText = formatTranscript(transcript, speakers: speakers)
-        guard !transcriptText.isEmpty else { return SummaryResult(title: "", tags: [], summary: "") }
-
-        // If the transcript fits in a single chunk, summarize directly
-        if transcriptText.count <= maxChunkCharacters {
-            let response = try await service.generate(
-                systemPrompt: systemPrompt,
-                userMessage: transcriptText
-            )
-            return parseResponse(response)
-        }
-
-        // Chunk the transcript and summarize each chunk, then combine
-        return try await chunkedSummarize(
-            transcript: transcript,
-            speakers: speakers,
-            service: service
-        )
-    }
-
-    // MARK: - Chunked Summarization
-
-    private static func chunkedSummarize(
-        transcript: [TranscriptSegment],
-        speakers: [Speaker],
-        service: any LLMService
-    ) async throws -> SummaryResult {
-        let chunks = splitIntoChunks(transcript, speakers: speakers)
-
-        // Summarize each chunk
-        var chunkSummaries: [String] = []
-        for chunk in chunks {
-            let chunkText = formatTranscript(chunk, speakers: speakers)
-            let summary = try await service.generate(
-                systemPrompt: chunkSummaryPrompt,
-                userMessage: chunkText
-            )
-            let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                chunkSummaries.append(trimmed)
-            }
-        }
-
-        guard !chunkSummaries.isEmpty else {
+        guard !TranscriptLLM.formatTranscript(transcript, speakers: speakers).isEmpty else {
             return SummaryResult(title: "", tags: [], summary: "")
         }
 
-        // If only one chunk produced a summary, still run through the final prompt
-        // to get the title/tags format
-        let combinedInput = chunkSummaries.enumerated().map { index, summary in
-            "Part \(index + 1):\n\(summary)"
-        }.joined(separator: "\n\n")
-
-        let finalResponse = try await service.generate(
-            systemPrompt: combinePrompt,
-            userMessage: combinedInput
+        // Map-reduce over the transcript (shared with Ask AI) so long meetings fit
+        // the provider's context window.
+        let response = try await TranscriptLLM.run(
+            transcript: transcript,
+            speakers: speakers,
+            provider: provider,
+            service: service,
+            prompts: .init(single: systemPrompt, map: chunkSummaryPrompt, reduce: combinePrompt)
         )
-
-        return parseResponse(finalResponse)
-    }
-
-    private static func splitIntoChunks(
-        _ segments: [TranscriptSegment],
-        speakers: [Speaker]
-    ) -> [[TranscriptSegment]] {
-        var chunks: [[TranscriptSegment]] = []
-        var currentChunk: [TranscriptSegment] = []
-        var currentLength = 0
-
-        for segment in segments {
-            let name = speakers.first { $0.id == segment.speakerId }?.displayName ?? segment.speakerId
-            let segmentLength = name.count + 2 + segment.text.count + 1 // "name: text\n"
-
-            if currentLength + segmentLength > maxChunkCharacters && !currentChunk.isEmpty {
-                chunks.append(currentChunk)
-                currentChunk = []
-                currentLength = 0
-            }
-
-            currentChunk.append(segment)
-            currentLength += segmentLength
-        }
-
-        if !currentChunk.isEmpty {
-            chunks.append(currentChunk)
-        }
-
-        return chunks
+        return parseResponse(response)
     }
 
     // MARK: - Parsing
@@ -153,22 +73,28 @@ enum Summarizer {
         }
 
         let title = lines[0]
-        let tags = lines[1]
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
-            .filter { !$0.isEmpty }
+        let tags = sanitizeTags(lines[1])
         let summary = lines.dropFirst(2).joined(separator: " ")
         return SummaryResult(title: title, tags: tags, summary: summary)
     }
 
-    private static func formatTranscript(
-        _ segments: [TranscriptSegment],
-        speakers: [Speaker]
-    ) -> String {
-        segments.map { segment in
-            let name = speakers.first { $0.id == segment.speakerId }?.displayName ?? segment.speakerId
-            return "\(name): \(segment.text)"
-        }.joined(separator: "\n")
+    /// Turn the model's "tags" line into clean, short, single-word tags. Models
+    /// often ignore the format and emit a sentence here; without this guard those
+    /// sentences became giant tags. We keep only short single tokens, drop anything
+    /// with spaces/sentence text, de-duplicate, and cap the count.
+    private static func sanitizeTags(_ line: String) -> [String] {
+        let maxTagLength = 24
+        let maxTagCount = 5
+        var result: [String] = []
+        for raw in line.components(separatedBy: CharacterSet(charactersIn: ",#\n")) {
+            let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            guard !tag.isEmpty, tag.count <= maxTagLength else { continue }
+            // Single token only: letters/digits/hyphen/&. Rejects sentence fragments.
+            guard tag.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "&" }) else { continue }
+            if !result.contains(tag) { result.append(tag) }
+            if result.count >= maxTagCount { break }
+        }
+        return result
     }
 }
 #endif
