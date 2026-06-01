@@ -52,11 +52,15 @@ final class AudioRecorder {
     private static let splitWindowSeconds: TimeInterval = 30
 
     private var inputFormat: AVAudioFormat?
-    private var outputSettings: [String: Any] {
+
+    /// AAC file settings for a given PCM format. The sample rate and channel count
+    /// MUST match the buffers being written — writing, say, 44.1kHz mic buffers into
+    /// a file labeled 48kHz plays back too fast and high-pitched.
+    private func aacSettings(sampleRate: Double, channels: AVAudioChannelCount) -> [String: Any] {
         [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 48000.0,
-            AVNumberOfChannelsKey: 1,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: Int(channels),
             AVEncoderBitRateKey: 128000,
         ]
     }
@@ -202,6 +206,8 @@ final class AudioRecorder {
         // Re-read the new input format and restart.
         let inputNode = engine.inputNode
         let newFormat = inputNode.outputFormat(forBus: 0)
+        // Keep the stored format current so later chunk files use the right rate.
+        self.inputFormat = newFormat
 
         // Remove old tap and reinstall with the new format
         inputNode.removeTap(onBus: 0)
@@ -415,7 +421,7 @@ final class AudioRecorder {
 
         let file = try AVAudioFile(
             forWriting: url,
-            settings: outputSettings,
+            settings: aacSettings(sampleRate: inputFormat.sampleRate, channels: inputFormat.channelCount),
             commonFormat: inputFormat.commonFormat,
             interleaved: inputFormat.isInterleaved
         )
@@ -457,7 +463,7 @@ final class AudioRecorder {
         let systemFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
         let file = try AVAudioFile(
             forWriting: url,
-            settings: outputSettings,
+            settings: aacSettings(sampleRate: systemFormat.sampleRate, channels: systemFormat.channelCount),
             commonFormat: systemFormat.commonFormat,
             interleaved: systemFormat.isInterleaved
         )
