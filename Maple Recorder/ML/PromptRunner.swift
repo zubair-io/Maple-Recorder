@@ -22,6 +22,15 @@ enum PromptRunner {
             You are given one section of a longer transcript. Respond for this section only; \
             your response will later be combined with responses to the other sections.
             """
+        let collapsePrompt = """
+            You are merging several partial responses, each covering a different section of \
+            the same transcript, into a single shorter combined response. Preserve the \
+            important information from each and do not re-answer from scratch. Do not mention \
+            that the work was done in sections. The partial responses were produced for this \
+            instruction, which describes what matters:
+
+            \(prompt.systemPrompt)
+            """
         let reducePrompt = """
             You are combining responses, each covering a different section of the same \
             transcript, into one cohesive final response. Follow this instruction for the \
@@ -38,7 +47,7 @@ enum PromptRunner {
             speakers: speakers,
             provider: provider,
             service: service,
-            prompts: .init(single: prompt.systemPrompt, map: mapPrompt, reduce: reducePrompt),
+            prompts: .init(single: prompt.systemPrompt, map: mapPrompt, collapse: collapsePrompt, reduce: reducePrompt),
             additionalContext: additionalContext
         )
 

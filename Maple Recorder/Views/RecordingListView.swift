@@ -619,25 +619,3 @@ private struct RecordingRow: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-
-extension MapleRecording: Hashable {
-    // Equality must reflect the fields shown in the UI. SwiftUI uses `==` to decide
-    // whether a row's input changed; comparing `id` alone makes it treat a row as
-    // unchanged after processing updates the title/summary/tags, so the sidebar row
-    // never re-renders. `modifiedAt` is bumped on every save and acts as a catch-all
-    // version stamp (covering transcript/speaker changes without deep array compares).
-    static func == (lhs: MapleRecording, rhs: MapleRecording) -> Bool {
-        lhs.id == rhs.id
-            && lhs.modifiedAt == rhs.modifiedAt
-            && lhs.title == rhs.title
-            && lhs.summary == rhs.summary
-            && lhs.duration == rhs.duration
-            && lhs.tags == rhs.tags
-    }
-
-    // Hashing stays id-only: equal values always share an id, and hash collisions
-    // for same-id/different-content values are permitted.
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
-}

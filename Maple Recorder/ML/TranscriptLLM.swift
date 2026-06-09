@@ -15,6 +15,10 @@ enum TranscriptLLM {
         let single: String
         /// System prompt applied to each chunk when the transcript is split.
         let map: String
+        /// System prompt that merges/shortens the *per-chunk outputs* (not transcript
+        /// text) into a smaller set so they fit before the final reduce. Distinct from
+        /// `map`, whose "this is a transcript section" framing is false during collapse.
+        let collapse: String
         /// System prompt that combines the per-chunk outputs into the final result.
         let reduce: String
     }
@@ -59,7 +63,7 @@ enum TranscriptLLM {
         // Collapse the partials until they fit, then reduce into the final output.
         var combined = combine(partials)
         while combined.count > maxChunk && partials.count > 1 {
-            partials = try await collapse(partials, service: service, prompt: prompts.map, maxChunkCharacters: maxChunk)
+            partials = try await collapse(partials, service: service, prompt: prompts.collapse, maxChunkCharacters: maxChunk)
             combined = combine(partials)
         }
 

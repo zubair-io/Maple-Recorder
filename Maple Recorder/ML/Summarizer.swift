@@ -24,6 +24,13 @@ enum Summarizer {
         Output only the summary paragraph, nothing else.
         """
 
+    private static let collapsePrompt = """
+        You are a concise meeting summarizer. You are given several partial summaries from \
+        sections of the same recording. Merge them into a single shorter summary paragraph \
+        that preserves the key topics, decisions made, and action items. Do not add a title \
+        or tags. Output only the merged summary paragraph, nothing else.
+        """
+
     private static let combinePrompt = """
         You are a concise meeting summarizer. You are given multiple partial summaries from \
         different sections of the same recording. Combine them into a single cohesive result:\
@@ -54,7 +61,7 @@ enum Summarizer {
             speakers: speakers,
             provider: provider,
             service: service,
-            prompts: .init(single: systemPrompt, map: chunkSummaryPrompt, reduce: combinePrompt)
+            prompts: .init(single: systemPrompt, map: chunkSummaryPrompt, collapse: collapsePrompt, reduce: combinePrompt)
         )
         return parseResponse(response)
     }
