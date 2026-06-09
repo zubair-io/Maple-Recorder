@@ -82,7 +82,7 @@ struct RecordingStoreTests {
 
         #expect(encoded.contains("%20"), "URL.path() should percent-encode the space")
         #expect(!decoded.contains("%20"), "decoded path must not contain %20")
-        #expect(decoded.contains("Mobile Documents"), "decoded path must contain the literal space")
+        #expect(decoded.contains("Mobile Documents "), "decoded path must contain the literal space")
     }
 
     /// Integration smoke test: deleting a recording whose files live under a

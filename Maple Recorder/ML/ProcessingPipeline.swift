@@ -13,12 +13,17 @@ enum ProcessingState: Sendable {
     case failed(String)
 }
 
-/// `nonisolated` so the heavy ASR/diarization/merge work runs off the main actor.
-/// The project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would
-/// otherwise pin this whole pipeline — including `mixSamples` and `TranscriptMerger`
-/// over millions of samples — to the main thread and freeze the UI during processing.
+/// MainActor-isolated (the project default, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
+/// `state`/`progress` are `@Observable` and read by SwiftUI, so they must only ever be
+/// mutated on the main actor — making the whole class `nonisolated` would let those
+/// mutations resume off-main after an `await` (SwiftUI undefined behavior).
+///
+/// The heavy CPU work that would otherwise freeze the UI — `loadAndResample`,
+/// `mixSamples`, and `TranscriptMerger` over millions of samples — is offloaded to a
+/// background GCD queue via `runOffMain`, not by un-isolating the class. The remaining
+/// main-actor work (orchestration plus the O(tokens) result mapping) is cheap.
 @Observable
-nonisolated final class ProcessingPipeline {
+final class ProcessingPipeline {
     var state: ProcessingState = .idle
     var progress: String = ""
 

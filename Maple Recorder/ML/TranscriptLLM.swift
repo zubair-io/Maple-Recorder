@@ -30,22 +30,26 @@ enum TranscriptLLM {
         let maxChunk = provider.maxChunkCharacters
         let chunks = splitIntoChunks(transcript, speakers: speakers, maxChunkCharacters: maxChunk)
 
-        // Fits in one request — run directly.
+        // Fits in one request — run directly. A single chunk can still exceed
+        // `maxChunk` when one segment's text is longer than the budget (splitting
+        // never breaks within a segment), so cap it like the reduce/collapse paths do.
         if chunks.count <= 1 {
             let text = formatTranscript(transcript, speakers: speakers)
             return try await service.generate(
                 systemPrompt: prompts.single,
-                userMessage: withContext(text, additionalContext)
+                userMessage: withContext(String(text.prefix(maxChunk)), additionalContext)
             )
         }
 
         // Map: process each chunk independently.
         var partials: [String] = []
         for chunk in chunks {
+            // Same guard as above: a lone over-budget segment must not send an
+            // oversized message and trip the provider's context limit.
             let text = formatTranscript(chunk, speakers: speakers)
             let out = try await service.generate(
                 systemPrompt: prompts.map,
-                userMessage: withContext(text, additionalContext)
+                userMessage: withContext(String(text.prefix(maxChunk)), additionalContext)
             )
             let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { partials.append(trimmed) }

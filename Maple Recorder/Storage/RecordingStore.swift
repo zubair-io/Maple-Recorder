@@ -62,15 +62,28 @@ final class RecordingStore {
         }
         while true {
             let generation = mutationGeneration
-            let loaded = await Task.detached(priority: .userInitiated) {
-                Self.readRecordingsFromDisk(at: url)
-            }.value
+            // GCD global queue rather than `Task.detached`: under
+            // `SWIFT_APPROACHABLE_CONCURRENCY` a detached task can still run on the
+            // main actor's executor, which would put this disk scan/JSON decode back
+            // on the UI thread. A global queue is reliably off-main — same reasoning
+            // as `ProcessingPipeline.runOffMain`.
+            let loaded = await Self.readOffMain(at: url)
             // If a save/delete raced with the read, its newer state would be lost by
             // assigning this snapshot. Re-read (disk now reflects the mutation) until
             // no mutation occurs during the read.
             if mutationGeneration == generation {
                 recordings = loaded
                 return
+            }
+        }
+    }
+
+    /// Runs the synchronous disk read on a GCD global queue and awaits the result,
+    /// guaranteeing it stays off the main thread (see `reload()`).
+    nonisolated private static func readOffMain(at url: URL) async -> [MapleRecording] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: readRecordingsFromDisk(at: url))
             }
         }
     }
