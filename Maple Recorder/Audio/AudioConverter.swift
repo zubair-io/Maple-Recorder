@@ -20,8 +20,8 @@ enum MapleAudioConverter {
     /// (`buffer.frameCapacity != 0`) when handed a zero-length or missing file.
     private static func validate(_ url: URL) throws {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path()) else { throw LoadError.missingFile(url) }
-        let size = (try? fm.attributesOfItem(atPath: url.path())[.size] as? NSNumber)?.intValue ?? 0
+        guard fm.fileExists(atPath: url.path(percentEncoded: false)) else { throw LoadError.missingFile(url) }
+        let size = (try? fm.attributesOfItem(atPath: url.path(percentEncoded: false))[.size] as? NSNumber)?.intValue ?? 0
         guard size > 0 else { throw LoadError.emptyFile(url) }
     }
 

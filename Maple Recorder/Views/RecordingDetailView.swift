@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 struct RecordingDetailView: View {
     @Bindable var store: RecordingStore
@@ -23,6 +28,7 @@ struct RecordingDetailView: View {
     @State private var editableSummary = ""
     @State private var isEditingTags = false
     @State private var editableTagsText = ""
+    @State private var didCopyTranscript = false
     #endif
 
     #if !os(watchOS)
@@ -164,8 +170,17 @@ struct RecordingDetailView: View {
                 editableTitle = recording.title
             }
             .onChange(of: recordingId) {
+                // On macOS the detail column reuses this view when the selection
+                // changes, so the audio player would keep playing the previous
+                // recording. Tear it down and load the newly selected recording.
+                syncEngine.stop()
+                player.pause()
+                player.seek(to: 0)
+                audioLoaded = false
+                isLoadingAudio = false
                 if let rec = store.recordings.first(where: { $0.id == recordingId }) {
                     editableTitle = rec.title
+                    loadAudioIfLocal(recording: rec)
                 }
             }
             .onChange(of: recording.title) { _, newTitle in
@@ -173,12 +188,7 @@ struct RecordingDetailView: View {
             }
             #endif
             .task {
-                let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-                let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-                let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
-                if allLocal && !micURLs.isEmpty {
-                    loadAudioSync(recording: recording)
-                }
+                loadAudioIfLocal(recording: recording)
             }
         } else {
             ContentUnavailableView(
@@ -387,6 +397,18 @@ struct RecordingDetailView: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        Divider()
+                            .frame(height: 16)
+
+                        Button {
+                            copyTranscript(recording)
+                        } label: {
+                            Image(systemName: didCopyTranscript ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(didCopyTranscript ? MapleTheme.primary : MapleTheme.textSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy transcript")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -421,6 +443,25 @@ struct RecordingDetailView: View {
         }
         #endif
     }
+
+    #if !os(watchOS)
+    /// Copies the transcript as plain "Speaker: text" lines to the clipboard.
+    private func copyTranscript(_ recording: MapleRecording) {
+        let text = TranscriptLLM.formatTranscript(recording.transcript, speakers: recording.speakers)
+        guard !text.isEmpty else { return }
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = text
+        #endif
+        didCopyTranscript = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            didCopyTranscript = false
+        }
+    }
+    #endif
 
     // MARK: - watchOS Section Helper
 
@@ -561,6 +602,18 @@ struct RecordingDetailView: View {
     #endif
 
     // MARK: - Audio
+
+    /// Eagerly load the recording's audio if all files are already downloaded
+    /// locally (otherwise playback loads on demand). Shared by initial appearance
+    /// and switching recordings.
+    private func loadAudioIfLocal(recording: MapleRecording) {
+        let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let systemURLs = recording.systemAudioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        let allLocal = (micURLs + systemURLs).allSatisfy { ICloudFileDownloader.isDownloaded(url: $0) }
+        if allLocal && !micURLs.isEmpty {
+            loadAudioSync(recording: recording)
+        }
+    }
 
     private func loadAudioSync(recording: MapleRecording) {
         let micURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }

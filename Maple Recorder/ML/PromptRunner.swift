@@ -13,16 +13,42 @@ enum PromptRunner {
             throw LLMServiceError.notAvailable
         }
 
-        let transcriptText = formatTranscript(transcript, speakers: speakers)
-        var userMessage = "Transcript:\n\n\(transcriptText)"
+        // Run the user's prompt over the whole transcript via the shared map-reduce
+        // engine, so even long transcripts fit the provider's context window
+        // (on-device Foundation Models is limited to 4,096 tokens).
+        let mapPrompt = """
+            \(prompt.systemPrompt)
 
-        if let context = additionalContext, !context.isEmpty {
-            userMessage += "\n\nAdditional context: \(context)"
-        }
+            You are given one section of a longer transcript. Respond for this section only; \
+            your response will later be combined with responses to the other sections.
+            """
+        let collapsePrompt = """
+            You are merging several partial responses, each covering a different section of \
+            the same transcript, into a single shorter combined response. Preserve the \
+            important information from each and do not re-answer from scratch. Do not mention \
+            that the work was done in sections. The partial responses were produced for this \
+            instruction, which describes what matters:
 
-        let result = try await service.generate(
-            systemPrompt: prompt.systemPrompt,
-            userMessage: userMessage
+            \(prompt.systemPrompt)
+            """
+        let reducePrompt = """
+            You are combining responses, each covering a different section of the same \
+            transcript, into one cohesive final response. Follow this instruction for the \
+            combined result:
+
+            \(prompt.systemPrompt)
+
+            Merge the sectioned responses below into a single coherent answer. Do not mention \
+            that the transcript was processed in sections.
+            """
+
+        let result = try await TranscriptLLM.run(
+            transcript: transcript,
+            speakers: speakers,
+            provider: provider,
+            service: service,
+            prompts: .init(single: prompt.systemPrompt, map: mapPrompt, collapse: collapsePrompt, reduce: reducePrompt),
+            additionalContext: additionalContext
         )
 
         return PromptResult(
@@ -34,16 +60,6 @@ enum PromptRunner {
             result: result,
             createdAt: Date()
         )
-    }
-
-    private static func formatTranscript(
-        _ segments: [TranscriptSegment],
-        speakers: [Speaker]
-    ) -> String {
-        segments.map { segment in
-            let name = speakers.first { $0.id == segment.speakerId }?.displayName ?? segment.speakerId
-            return "\(name): \(segment.text)"
-        }.joined(separator: "\n")
     }
 }
 #endif

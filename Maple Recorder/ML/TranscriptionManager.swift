@@ -7,8 +7,10 @@ enum TranscriptionError: Error, Sendable {
     case notInitialized
 }
 
+// `nonisolated` so FluidAudio ASR inference runs off the main actor (the project
+// defaults unmarked types to `@MainActor`, which would block the UI).
 @Observable
-final class TranscriptionManager {
+nonisolated final class TranscriptionManager {
     var isModelReady = false
     var isTranscribing = false
 
