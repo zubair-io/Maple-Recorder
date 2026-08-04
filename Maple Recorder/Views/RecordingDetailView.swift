@@ -4,6 +4,7 @@ import AppKit
 #elseif os(iOS)
 import UIKit
 #endif
+import AVKit
 
 struct RecordingDetailView: View {
     @Bindable var store: RecordingStore
@@ -52,6 +53,9 @@ struct RecordingDetailView: View {
                         meetingOverviewSection(recording: recording)
                         detailsSection(recording: recording)
                         tagsSection(recording: recording)
+                        #if !os(watchOS)
+                        videoPlayerSection(recording: recording)
+                        #endif
                         transcriptSection(recording: recording)
                         #if !os(watchOS)
                         aiInsightsSection(recording: recording)
@@ -364,6 +368,20 @@ struct RecordingDetailView: View {
         }
         #endif
     }
+
+    // MARK: - Video Player Section
+
+    #if !os(watchOS)
+    @ViewBuilder
+    private func videoPlayerSection(recording: MapleRecording) -> some View {
+        if let videoFile = recording.videoFile {
+            let videoURL = StorageLocation.recordingsURL.appendingPathComponent(videoFile)
+            VideoPlayer(player: AVPlayer(url: videoURL))
+                .frame(height: 220)
+                .clipShape(.rect(cornerRadius: 12))
+        }
+    }
+    #endif
 
     // MARK: - Transcript Section
 
