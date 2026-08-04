@@ -80,9 +80,10 @@ final class VideoRecorder: NSObject {
 
     func stopSession() {
         sessionQueue.async { [weak self] in
-            self?.session.stopRunning()
+            guard let self else { return }
+            self.session.stopRunning()
             Task { @MainActor in
-                self?.isSessionRunning = false
+                self.isSessionRunning = false
             }
         }
     }
@@ -93,14 +94,31 @@ final class VideoRecorder: NSObject {
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try? FileManager.default.removeItem(at: url)
         }
-        movieOutput.startRecording(to: url, recordingDelegate: self)
+        // Must run on sessionQueue, the same queue startSession/stopSession use to
+        // drive the session — calling this directly on whatever thread the caller
+        // is on let it race with a concurrent session.stopRunning(), which is how
+        // this used to deadlock AVFoundation's internal session lock (app would
+        // beachball right after stopping a video recording).
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.movieOutput.startRecording(to: url, recordingDelegate: self)
+        }
     }
 
+    /// Stops the movie file recording and waits for it to finish writing. Callers
+    /// must not stop the capture session until this returns — tearing the session
+    /// down while the movie output is still finalizing is what caused the deadlock
+    /// described above.
     func stopRecording() async -> URL? {
-        guard movieOutput.isRecording else { return nil }
-        return await withCheckedContinuation { continuation in
-            self.recordingCompletion = continuation
-            movieOutput.stopRecording()
+        await withCheckedContinuation { continuation in
+            sessionQueue.async { [weak self] in
+                guard let self, self.movieOutput.isRecording else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.recordingCompletion = continuation
+                self.movieOutput.stopRecording()
+            }
         }
     }
 
@@ -136,7 +154,10 @@ final class VideoRecorder: NSObject {
 }
 
 extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
-    func fileOutput(
+    // AVFoundation invokes delegate methods from an arbitrary internal queue, not
+    // necessarily the main actor — `nonisolated` lets it call in from there; the
+    // body hops back to the main actor itself before touching any state.
+    nonisolated func fileOutput(
         _ output: AVCaptureFileOutput,
         didFinishRecordingTo outputFileURL: URL,
         from connections: [AVCaptureConnection],

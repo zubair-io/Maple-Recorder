@@ -447,7 +447,13 @@ struct RecordingListView: View {
         #if !os(watchOS)
         let wasVideoEnabled = isVideoEnabled
         isVideoEnabled = false
-        videoRecorder.stopSession()
+        if !wasVideoEnabled {
+            videoRecorder.stopSession()
+        }
+        // If video was enabled, the session is stopped in attachVideoFile(to:) —
+        // only after the movie file finishes writing. Stopping it here instead
+        // would tear the capture session down while stopRecording() below is
+        // still trying to finalize the file through it, deadlocking AVFoundation.
         #endif
 
         let now = Date()
@@ -528,7 +534,9 @@ struct RecordingListView: View {
 
     #if !os(watchOS)
     private func attachVideoFile(to recordingId: UUID) async {
-        guard let tempURL = await videoRecorder.stopRecording() else { return }
+        let tempURL = await videoRecorder.stopRecording()
+        videoRecorder.stopSession()
+        guard let tempURL else { return }
         let destURL = StorageLocation.recordingsURL.appendingPathComponent(tempURL.lastPathComponent)
         try? FileManager.default.copyItem(at: tempURL, to: destURL)
 
