@@ -13,6 +13,10 @@ struct RecordingListView: View {
     var miniRecordingController: MiniRecordingController?
     #endif
     @State private var recorder = AudioRecorder()
+    #if !os(watchOS)
+    @State private var videoRecorder = VideoRecorder()
+    @State private var isVideoEnabled = false
+    #endif
     @State private var recordingURL: URL?
     @State private var selectedRecordingId: UUID?
     @State private var searchText = ""
@@ -295,6 +299,30 @@ struct RecordingListView: View {
 
     private var recordFAB: some View {
         VStack(spacing: 8) {
+            #if !os(watchOS)
+            if isVideoEnabled {
+                CameraPreviewView(session: videoRecorder.session)
+                    .frame(width: 160, height: 120)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(MapleTheme.border, lineWidth: 1)
+                    )
+            }
+
+            if let captureError = videoRecorder.captureError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(MapleTheme.error)
+                    Text(captureError)
+                        .font(.caption2)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 12)
+            }
+            #endif
+
             ZStack {
                 if recorder.isRecording {
                     PulsingWaveform(audioLevel: recorder.audioLevel)
@@ -323,14 +351,22 @@ struct RecordingListView: View {
                     .font(.system(.caption, design: .monospaced, weight: .medium))
                     .foregroundStyle(.white)
             } else {
-                #if os(macOS)
-                Toggle(isOn: $recorder.includeSystemAudio) {
-                    Label("Include system audio", systemImage: "speaker.wave.2")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textPrimary)
+                HStack(spacing: 8) {
+                    #if os(macOS)
+                    RecordingOptionChip(
+                        title: "System audio",
+                        systemImage: "speaker.wave.2",
+                        isOn: $recorder.includeSystemAudio
+                    )
+                    #endif
+                    #if !os(watchOS)
+                    RecordingOptionChip(
+                        title: "Video",
+                        systemImage: "video.fill",
+                        isOn: $isVideoEnabled
+                    )
+                    #endif
                 }
-                .toggleStyle(.checkbox)
-                #endif
             }
         }
         .padding(.bottom, 16)
@@ -350,7 +386,29 @@ struct RecordingListView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         )
+        #if !os(watchOS)
+        .onChange(of: isVideoEnabled) { _, newValue in
+            if newValue {
+                Task { await enableVideoPreview() }
+            } else {
+                videoRecorder.stopSession()
+            }
+        }
+        #endif
     }
+
+    #if !os(watchOS)
+    private func enableVideoPreview() async {
+        videoRecorder.captureError = nil
+        let granted = await videoRecorder.requestPermissionIfNeeded()
+        guard granted else {
+            isVideoEnabled = false
+            videoRecorder.captureError = "Camera access denied. Enable it in System Settings > Privacy > Camera."
+            return
+        }
+        videoRecorder.startSession(preferredDeviceID: settingsManager.preferredCameraID)
+    }
+    #endif
 
     // MARK: - Actions
 
@@ -364,6 +422,11 @@ struct RecordingListView: View {
         Task {
             do {
                 recordingURL = try await recorder.startRecording()
+                #if !os(watchOS)
+                if isVideoEnabled, let recordingId = recorder.recordingId {
+                    videoRecorder.startRecording(id: recordingId)
+                }
+                #endif
             } catch {
                 print("Failed to start recording: \(error)")
             }
@@ -380,6 +443,12 @@ struct RecordingListView: View {
         let duration = recorder.elapsedTime
         let result = recorder.stopRecording()
         guard !result.micURLs.isEmpty else { return }
+
+        #if !os(watchOS)
+        let wasVideoEnabled = isVideoEnabled
+        isVideoEnabled = false
+        videoRecorder.stopSession()
+        #endif
 
         let now = Date()
         let title: String
@@ -423,8 +492,9 @@ struct RecordingListView: View {
             systemAudioFileNames.append(fileName)
         }
 
+        let recordingId = recorder.recordingId ?? UUID()
         let recording = MapleRecording(
-            id: recorder.recordingId ?? UUID(),
+            id: recordingId,
             title: title,
             audioFiles: audioFileNames,
             systemAudioFiles: systemAudioFileNames,
@@ -441,6 +511,12 @@ struct RecordingListView: View {
         }
 
         #if !os(watchOS)
+        if wasVideoEnabled {
+            Task {
+                await attachVideoFile(to: recordingId)
+            }
+        }
+
         // Kick off processing pipeline
         if modelManager.isReady {
             Task {
@@ -449,6 +525,18 @@ struct RecordingListView: View {
         }
         #endif
     }
+
+    #if !os(watchOS)
+    private func attachVideoFile(to recordingId: UUID) async {
+        guard let tempURL = await videoRecorder.stopRecording() else { return }
+        let destURL = StorageLocation.recordingsURL.appendingPathComponent(tempURL.lastPathComponent)
+        try? FileManager.default.copyItem(at: tempURL, to: destURL)
+
+        guard var recording = store.recordings.first(where: { $0.id == recordingId }) else { return }
+        recording.videoFile = destURL.lastPathComponent
+        try? store.update(recording)
+    }
+    #endif
 
     #if !os(watchOS)
     private func processRecording(_ recording: MapleRecording) async {
