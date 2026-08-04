@@ -6,6 +6,7 @@ struct MapleRecording: Identifiable, Sendable {
     var summary: String
     var audioFiles: [String]
     var systemAudioFiles: [String]
+    var videoFile: String?
     var duration: TimeInterval
     var createdAt: Date
     var modifiedAt: Date
@@ -20,6 +21,7 @@ struct MapleRecording: Identifiable, Sendable {
         summary: String = "",
         audioFiles: [String] = [],
         systemAudioFiles: [String] = [],
+        videoFile: String? = nil,
         duration: TimeInterval = 0,
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
@@ -33,6 +35,7 @@ struct MapleRecording: Identifiable, Sendable {
         self.summary = summary
         self.audioFiles = audioFiles
         self.systemAudioFiles = systemAudioFiles
+        self.videoFile = videoFile
         self.duration = duration
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
@@ -74,6 +77,7 @@ extension MapleRecording {
         var id: UUID
         var audio: [String]
         var systemAudio: [String]
+        var video: String?
         var duration: TimeInterval
         var createdAt: Date
         var modifiedAt: Date
@@ -83,7 +87,7 @@ extension MapleRecording {
         var tags: [String]
 
         enum CodingKeys: String, CodingKey {
-            case id, audio, duration, speakers, transcript, tags
+            case id, audio, video, duration, speakers, transcript, tags
             case systemAudio = "system_audio"
             case createdAt = "created_at"
             case modifiedAt = "modified_at"
@@ -94,6 +98,7 @@ extension MapleRecording {
             id: UUID,
             audio: [String],
             systemAudio: [String] = [],
+            video: String? = nil,
             duration: TimeInterval,
             createdAt: Date,
             modifiedAt: Date,
@@ -105,6 +110,7 @@ extension MapleRecording {
             self.id = id
             self.audio = audio
             self.systemAudio = systemAudio
+            self.video = video
             self.duration = duration
             self.createdAt = createdAt
             self.modifiedAt = modifiedAt
@@ -119,6 +125,7 @@ extension MapleRecording {
             id = try container.decode(UUID.self, forKey: .id)
             audio = try container.decode([String].self, forKey: .audio)
             systemAudio = try container.decodeIfPresent([String].self, forKey: .systemAudio) ?? []
+            video = try container.decodeIfPresent(String.self, forKey: .video)
             duration = try container.decode(TimeInterval.self, forKey: .duration)
             createdAt = try container.decode(Date.self, forKey: .createdAt)
             modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
@@ -134,6 +141,7 @@ extension MapleRecording {
             id: id,
             audio: audioFiles,
             systemAudio: systemAudioFiles,
+            video: videoFile,
             duration: duration,
             createdAt: createdAt,
             modifiedAt: modifiedAt,
@@ -150,6 +158,7 @@ extension MapleRecording {
         self.summary = summary
         self.audioFiles = metadata.audio
         self.systemAudioFiles = metadata.systemAudio
+        self.videoFile = metadata.video
         self.duration = metadata.duration
         self.createdAt = metadata.createdAt
         self.modifiedAt = metadata.modifiedAt
