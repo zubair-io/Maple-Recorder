@@ -15,5 +15,7 @@
 	<array>
 		<string>iCloud.com.just.maple.Maple-Recorder</string>
 	</array>
+	<key>com.apple.security.device.camera</key>
+	<true/>
 </dict>
 </plist>
