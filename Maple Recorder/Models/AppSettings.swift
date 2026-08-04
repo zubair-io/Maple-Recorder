@@ -18,6 +18,9 @@ struct AppSettings: Codable, Sendable {
     var calendarTitleMode: CalendarTitleMode
     var selectedCalendarIdentifiers: [String]  // empty = all calendars
 
+    // Camera
+    var preferredCameraID: String?  // AVCaptureDevice.uniqueID; nil = use platform default
+
     enum CodingKeys: String, CodingKey {
         case preferredLLMProvider = "preferred_llm_provider"
         case claudeAPIKey = "claude_api_key"
@@ -27,6 +30,7 @@ struct AppSettings: Codable, Sendable {
         case calendarEnabled = "calendar_enabled"
         case calendarTitleMode = "calendar_title_mode"
         case selectedCalendarIdentifiers = "selected_calendar_identifiers"
+        case preferredCameraID = "preferred_camera_id"
     }
 
     init(
@@ -37,7 +41,8 @@ struct AppSettings: Codable, Sendable {
         chunkDurationMinutes: Int = 30,
         calendarEnabled: Bool = false,
         calendarTitleMode: CalendarTitleMode = .hint,
-        selectedCalendarIdentifiers: [String] = []
+        selectedCalendarIdentifiers: [String] = [],
+        preferredCameraID: String? = nil
     ) {
         self.preferredLLMProvider = preferredLLMProvider
         self.claudeAPIKey = claudeAPIKey
@@ -47,6 +52,7 @@ struct AppSettings: Codable, Sendable {
         self.calendarEnabled = calendarEnabled
         self.calendarTitleMode = calendarTitleMode
         self.selectedCalendarIdentifiers = selectedCalendarIdentifiers
+        self.preferredCameraID = preferredCameraID
     }
 
     init(from decoder: Decoder) throws {
@@ -58,11 +64,15 @@ struct AppSettings: Codable, Sendable {
         chunkDurationMinutes = try container.decode(Int.self, forKey: .chunkDurationMinutes)
         calendarEnabled = try container.decodeIfPresent(Bool.self, forKey: .calendarEnabled) ?? false
         calendarTitleMode = try container.decodeIfPresent(CalendarTitleMode.self, forKey: .calendarTitleMode) ?? .hint
-        // Migrate from old single-calendar setting
-        if let old = try container.decodeIfPresent(String.self, forKey: .selectedCalendarIdentifiers) {
+        // Migrate from old single-calendar setting. `try?` (not `decodeIfPresent`) is
+        // required here: the current format stores an array, and `decodeIfPresent`
+        // only returns nil for an absent/null key — a present array value makes it
+        // throw a type-mismatch instead of falling through to the array decode below.
+        if let old = try? container.decode(String.self, forKey: .selectedCalendarIdentifiers) {
             selectedCalendarIdentifiers = [old]
         } else {
             selectedCalendarIdentifiers = try container.decodeIfPresent([String].self, forKey: .selectedCalendarIdentifiers) ?? []
         }
+        preferredCameraID = try container.decodeIfPresent(String.self, forKey: .preferredCameraID)
     }
 }
