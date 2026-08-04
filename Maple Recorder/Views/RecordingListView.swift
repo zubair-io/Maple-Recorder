@@ -300,7 +300,18 @@ struct RecordingListView: View {
     private var recordFAB: some View {
         VStack(spacing: 8) {
             #if !os(watchOS)
-            if isVideoEnabled {
+            // Gated on the session's actual running state, not the isVideoEnabled
+            // toggle intent: tearing down this view's AVCaptureVideoPreviewLayer
+            // deallocates it on the main thread, which calls back into the
+            // session (commitConfiguration) to detach. If that races with
+            // session.stopRunning() running concurrently on videoRecorder's
+            // background queue, AVFoundation deadlocks the two threads against
+            // each other (each waiting on a lock the other holds) — the app
+            // beachballs. Waiting for isSessionRunning to actually flip false
+            // (which only happens after stopRunning() has already returned)
+            // guarantees the view's teardown happens strictly after, never
+            // concurrently with, that call.
+            if videoRecorder.isSessionRunning {
                 CameraPreviewView(session: videoRecorder.session)
                     .frame(width: 160, height: 120)
                     .clipShape(.rect(cornerRadius: 12))
