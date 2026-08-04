@@ -152,6 +152,13 @@ final class RecordingStore {
             }
         }
 
+        if let videoFile = recording.videoFile {
+            let videoURL = recordingsURL.appendingPathComponent(videoFile)
+            if fileManager.fileExists(atPath: videoURL.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: videoURL)
+            }
+        }
+
         recordings.removeAll { $0.id == recording.id }
         mutationGeneration += 1
     }

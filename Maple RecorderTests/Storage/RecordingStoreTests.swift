@@ -62,6 +62,30 @@ struct RecordingStoreTests {
         #expect(!FileManager.default.fileExists(atPath: mdPath))
     }
 
+    @Test func deleteRemovesVideoFile() throws {
+        let dir = try makeTempDirectory()
+        defer { cleanup(dir) }
+
+        let store = RecordingStore(directory: dir)
+        var recording = MapleRecording(
+            title: "With Video",
+            audioFiles: ["clip.m4a"],
+            duration: 10.0
+        )
+        recording.videoFile = "clip.mov"
+
+        // Store.save only writes the .md file; create the sibling audio/video
+        // files directly so delete() has something real to remove.
+        try Data().write(to: dir.appendingPathComponent("clip.m4a"))
+        try Data().write(to: dir.appendingPathComponent("clip.mov"))
+
+        try store.save(recording)
+        try store.delete(recording)
+
+        let videoPath = dir.appendingPathComponent("clip.mov").path(percentEncoded: false)
+        #expect(!FileManager.default.fileExists(atPath: videoPath))
+    }
+
     /// Regression: the iCloud container path ("…/Mobile Documents/…") contains a
     /// space. `URL.path()` percent-encodes it to "%20", and on macOS
     /// `FileManager.fileExists(atPath:)` then treats that literally and fails — so
