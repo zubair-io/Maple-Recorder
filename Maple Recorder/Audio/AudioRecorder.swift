@@ -131,10 +131,21 @@ final class AudioRecorder {
         timer?.invalidate()
         timer = nil
 
+        // Keep a second strong reference so `audioEngine = nil` below drops
+        // only one of two references, not the last one. AVAudioEngine's
+        // deinit synchronizes with CoreAudio's hardware layer and can hang
+        // for a long time — observed when a camera capture session was also
+        // active, apparently contending for shared audio/video hardware.
+        // Releasing this local on a background queue keeps that potential
+        // hang off the main thread instead of beachballing the whole app.
+        let engineToRelease = audioEngine
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
         removeEngineObservers()
+        DispatchQueue.global(qos: .utility).async {
+            _ = engineToRelease
+        }
 
         // Drain the write queue to ensure all pending writes complete,
         // then nil out the files so no further writes occur.
