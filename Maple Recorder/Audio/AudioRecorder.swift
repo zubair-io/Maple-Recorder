@@ -67,8 +67,19 @@ final class AudioRecorder {
 
     func startRecording(chunkDurationMinutes: Int = 30) async throws -> URL {
         #if os(iOS)
+        // .playAndRecord excludes Bluetooth routes unless explicitly allowed —
+        // without the two allowBluetooth options, connected headphones are
+        // ignored and audio is forced to the built-in speaker/mic.
+        // .defaultToSpeaker only applies when nothing external is connected
+        // (loud speaker instead of the ear receiver). MUST stay identical to
+        // VideoRecorder.startSession's config so the two never reconfigure the
+        // session out from under each other mid-capture.
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+        try session.setCategory(
+            .playAndRecord,
+            mode: .default,
+            options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetoothHFP]
+        )
         try session.setActive(true)
         #endif
 

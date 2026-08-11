@@ -115,7 +115,11 @@ final class VideoRecorder: NSObject {
                 // reconfigured mid-capture when recording begins.
                 do {
                     let audioSession = AVAudioSession.sharedInstance()
-                    try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+                    try audioSession.setCategory(
+                        .playAndRecord,
+                        mode: .default,
+                        options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetoothHFP]
+                    )
                     try audioSession.setActive(true)
                 } catch {
                     videoDebugLog("[VideoRecorder] startSession: audio session setup failed: \(error.localizedDescription)")
