@@ -39,6 +39,12 @@ final class AudioRecorder {
     private var systemChunkURLs: [URL] = []
     #endif
 
+    /// Wall-clock time the first mic buffer was written — i.e. where the audio
+    /// file's timeline begins. Used to align the separately-captured video
+    /// track when muxing (written on writeQueue; read after stopRecording()'s
+    /// writeQueue.sync drain, which is the memory barrier making that safe).
+    private(set) var micFirstBufferAt: Date?
+
     // Chunking state
     private(set) var recordingId: UUID?
     private var chunkURLs: [URL] = []
@@ -81,6 +87,7 @@ final class AudioRecorder {
         self.chunkDurationMinutes = chunkDurationMinutes
         self.chunkURLs = []
         self.chunkIndex = 0
+        self.micFirstBufferAt = nil
         #if os(macOS)
         self.systemChunkURLs = []
         #endif
@@ -271,6 +278,9 @@ final class AudioRecorder {
     // MARK: - Buffer Writing (called on writeQueue)
 
     private func writeMicBufferOnQueue(_ buffer: AVAudioPCMBuffer) {
+        if micFirstBufferAt == nil {
+            micFirstBufferAt = Date()
+        }
         try? outputFile?.write(from: buffer)
 
         // Calculate RMS for audio level

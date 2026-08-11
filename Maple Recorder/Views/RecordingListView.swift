@@ -572,17 +572,40 @@ struct RecordingListView: View {
         videoRecorder.stopSession()
         videoDebugLog("[RecordingListView] attachVideoFile: tempURL=\(String(describing: tempURL))")
         guard let tempURL else { return }
-        let destURL = StorageLocation.recordingsURL.appendingPathComponent(tempURL.lastPathComponent)
-        do {
-            try FileManager.default.copyItem(at: tempURL, to: destURL)
-        } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: copy failed: \(error)")
-        }
 
         guard var recording = store.recordings.first(where: { $0.id == recordingId }) else {
             videoDebugLog("[RecordingListView] attachVideoFile: recording \(recordingId) not found in store")
             return
         }
+
+        // The capture session records video only (the mic belongs to
+        // AudioRecorder) — merge the recorded mic audio into the file here so
+        // the saved video plays with sound. The audio timeline starts earlier
+        // than the video's, so trim that lead-in to keep lip-sync. On failure,
+        // fall back to attaching the silent video: better than losing footage.
+        var videoToSave = tempURL
+        let audioURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
+        var audioLeadIn: TimeInterval = 0
+        if let audioStart = recorder.micFirstBufferAt, let videoStart = videoRecorder.movieStartedAt {
+            audioLeadIn = max(0, videoStart.timeIntervalSince(audioStart))
+        }
+        do {
+            videoToSave = try await VideoAudioMuxer.muxedVideo(videoURL: tempURL, audioURLs: audioURLs, audioLeadIn: audioLeadIn)
+            videoDebugLog("[RecordingListView] attachVideoFile: muxed audio into video (leadIn=\(audioLeadIn)s)")
+        } catch {
+            videoDebugLog("[RecordingListView] attachVideoFile: mux failed (\(error)) — saving silent video")
+        }
+
+        let destURL = StorageLocation.recordingsURL.appendingPathComponent("\(recordingId.uuidString).mov")
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path(percentEncoded: false)) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.copyItem(at: videoToSave, to: destURL)
+        } catch {
+            videoDebugLog("[RecordingListView] attachVideoFile: copy failed: \(error)")
+        }
+
         recording.videoFile = destURL.lastPathComponent
         do {
             try store.update(recording)

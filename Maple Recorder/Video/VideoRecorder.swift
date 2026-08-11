@@ -46,6 +46,12 @@ final class VideoRecorder: NSObject {
     /// stopRecording() returns this instead of losing the finished file.
     private var pendingFinishedURL: URL?
 
+    /// Wall-clock time the movie file actually began writing (didStartRecording
+    /// delegate) — i.e. where the video's timeline begins. Compared against
+    /// AudioRecorder.micFirstBufferAt when muxing the mic audio into the video
+    /// so the two tracks line up.
+    private(set) var movieStartedAt: Date?
+
     override init() {
         super.init()
         session.sessionPreset = .high
@@ -138,6 +144,7 @@ final class VideoRecorder: NSObject {
 
     func startRecording(id: UUID) {
         pendingFinishedURL = nil
+        movieStartedAt = nil
         let tempDir = FileManager.default.temporaryDirectory
         let url = tempDir.appendingPathComponent("\(id.uuidString).mov")
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
@@ -225,6 +232,20 @@ extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
     // AVFoundation invokes delegate methods from an arbitrary internal queue, not
     // necessarily the main actor — `nonisolated` lets it call in from there; the
     // body hops back to the main actor itself before touching any state.
+    nonisolated func fileOutput(
+        _ output: AVCaptureFileOutput,
+        didStartRecordingTo fileURL: URL,
+        from connections: [AVCaptureConnection]
+    ) {
+        // Capture the timestamp here, not after the actor hop — the hop's
+        // queueing delay would skew the audio/video alignment it exists for.
+        let startedAt = Date()
+        videoDebugLog("[VideoRecorder] fileOutput didStartRecordingTo: \(fileURL.lastPathComponent)")
+        Task { @MainActor in
+            self.movieStartedAt = startedAt
+        }
+    }
+
     nonisolated func fileOutput(
         _ output: AVCaptureFileOutput,
         didFinishRecordingTo outputFileURL: URL,
