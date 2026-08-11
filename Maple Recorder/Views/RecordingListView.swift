@@ -17,6 +17,15 @@ struct RecordingListView: View {
     @State private var videoRecorder = VideoRecorder()
     @State private var isVideoEnabled = false
     #endif
+    // Video recordings run through the capture session alone (no AudioRecorder),
+    // so the view tracks their in-progress state itself. Declared on every
+    // platform (always nil on watchOS) so the shared FAB code compiles there.
+    @State private var videoRecordingId: UUID?
+    @State private var videoRecordingStartedAt: Date?
+
+    private var isCapturing: Bool {
+        recorder.isRecording || videoRecordingStartedAt != nil
+    }
     @State private var recordingURL: URL?
     @State private var selectedRecordingId: UUID?
     @State private var searchText = ""
@@ -340,13 +349,13 @@ struct RecordingListView: View {
                 }
 
                 Button {
-                    if recorder.isRecording {
+                    if isCapturing {
                         stopRecording()
                     } else {
                         startRecording()
                     }
                 } label: {
-                    Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
+                    Image(systemName: isCapturing ? "stop.fill" : "mic.fill")
                         .font(.title2)
                         .foregroundStyle(.white)
                         .frame(width: 64, height: 64)
@@ -359,6 +368,10 @@ struct RecordingListView: View {
 
             if recorder.isRecording {
                 Text(formatTime(recorder.elapsedTime))
+                    .font(.system(.caption, design: .monospaced, weight: .medium))
+                    .foregroundStyle(.white)
+            } else if let startedAt = videoRecordingStartedAt {
+                Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
                     .font(.system(.caption, design: .monospaced, weight: .medium))
                     .foregroundStyle(.white)
             } else {
@@ -424,6 +437,22 @@ struct RecordingListView: View {
     // MARK: - Actions
 
     private func startRecording() {
+        #if !os(watchOS)
+        // Video mode records through the capture session ALONE — audio+video
+        // in one system-managed pipeline (routing, devices, and the audio
+        // session are entirely the OS's business). AudioRecorder is not
+        // involved; running both at once is what caused every freeze and
+        // session-config failure this feature has hit.
+        if isVideoEnabled, videoRecorder.isSessionRunning {
+            let id = UUID()
+            videoRecordingId = id
+            videoRecordingStartedAt = Date()
+            videoRecorder.startRecording(id: id)
+            videoDebugLog("[RecordingListView] startRecording: video-only flow, id=\(id)")
+            return
+        }
+        #endif
+
         #if os(macOS)
         miniRecordingController?.recorder = recorder
         miniRecordingController?.onStopRequested = { [self] in
@@ -433,24 +462,43 @@ struct RecordingListView: View {
         Task {
             do {
                 recordingURL = try await recorder.startRecording()
-                #if !os(watchOS)
-                // Gated on isSessionRunning (the camera actually finished
-                // starting), not isVideoEnabled (the toggle intent, true the
-                // instant the chip is tapped) — starting the movie file output
-                // before the session has a connected input silently records
-                // nothing.
-                videoDebugLog("[RecordingListView] startRecording: isVideoEnabled=\(isVideoEnabled), isSessionRunning=\(videoRecorder.isSessionRunning), recordingId=\(String(describing: recorder.recordingId))")
-                if videoRecorder.isSessionRunning, let recordingId = recorder.recordingId {
-                    videoRecorder.startRecording(id: recordingId)
-                }
-                #endif
             } catch {
                 print("Failed to start recording: \(error)")
+                #if !os(watchOS)
+                videoDebugLog("[RecordingListView] startRecording FAILED: \(error)")
+                #endif
             }
         }
     }
 
+    private func makeRecordingTitle(now: Date) -> String {
+        #if !os(watchOS)
+        let calTitle = settingsManager.calendarEnabled
+            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
+            : nil
+        switch settingsManager.calendarTitleMode {
+        case .exactName where calTitle != nil:
+            return calTitle!
+        case .hint where calTitle != nil:
+            return "\(calTitle!) — Recording"
+        default:
+            break
+        }
+        #endif
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "Recording \(formatter.string(from: now))"
+    }
+
     private func stopRecording() {
+        #if !os(watchOS)
+        if videoRecordingStartedAt != nil {
+            stopVideoRecording()
+            return
+        }
+        #endif
+
         #if os(macOS)
         miniRecordingController?.recorder = nil
         miniRecordingController?.onStopRequested = nil
@@ -459,59 +507,10 @@ struct RecordingListView: View {
 
         let duration = recorder.elapsedTime
         let result = recorder.stopRecording()
-        guard !result.micURLs.isEmpty else {
-            #if !os(watchOS)
-            // No audio means no recording gets saved — still shut video down
-            // (movie output first, then session, then the toggle) or the
-            // camera would keep capturing forever.
-            if isVideoEnabled {
-                Task {
-                    _ = await videoRecorder.stopRecording()
-                    videoRecorder.stopSession()
-                    isVideoEnabled = false
-                }
-            }
-            #endif
-            return
-        }
-
-        #if !os(watchOS)
-        // isVideoEnabled must NOT be flipped false here: the flip fires the
-        // FAB's onChange handler, whose "off" branch stops the capture session
-        // while the movie file output is still finalizing. That discards the
-        // in-flight video (the finished-file delegate fires before anything
-        // awaits it, so the .mov is orphaned in tmp) and re-opens the
-        // session-stop-during-finalize AVFoundation deadlock. The flip happens
-        // in the Task below, after attachVideoFile() has fully stopped video.
-        let wasVideoEnabled = isVideoEnabled
-        if !wasVideoEnabled {
-            videoRecorder.stopSession()
-        }
-        #endif
+        guard !result.micURLs.isEmpty else { return }
 
         let now = Date()
-        let title: String
-        #if !os(watchOS)
-        let calTitle = settingsManager.calendarEnabled
-            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
-            : nil
-        switch settingsManager.calendarTitleMode {
-        case .exactName where calTitle != nil:
-            title = calTitle!
-        case .hint where calTitle != nil:
-            title = "\(calTitle!) — Recording"
-        default:
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            title = "Recording \(formatter.string(from: now))"
-        }
-        #else
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        title = "Recording \(formatter.string(from: now))"
-        #endif
+        let title = makeRecordingTitle(now: now)
 
         // Copy all mic chunk files to recordings directory
         var audioFileNames: [String] = []
@@ -531,9 +530,8 @@ struct RecordingListView: View {
             systemAudioFileNames.append(fileName)
         }
 
-        let recordingId = recorder.recordingId ?? UUID()
         let recording = MapleRecording(
-            id: recordingId,
+            id: recorder.recordingId ?? UUID(),
             title: title,
             audioFiles: audioFileNames,
             systemAudioFiles: systemAudioFileNames,
@@ -550,86 +548,99 @@ struct RecordingListView: View {
         }
 
         #if !os(watchOS)
-        Task {
-            // Video must be fully attached BEFORE processing starts: attach
-            // replaces the recording's m4a with audio extracted from the video
-            // so transcription runs on the video's exact timeline — the
-            // pipeline must read that file, not the mic-recorded one it would
-            // race with otherwise.
-            if wasVideoEnabled {
-                await attachVideoFile(to: recordingId)
-                isVideoEnabled = false
-            }
-            if modelManager.isReady {
-                let current = store.recordings.first(where: { $0.id == recordingId }) ?? recording
-                await processRecording(current)
+        // Kick off processing pipeline
+        if modelManager.isReady {
+            Task {
+                await processRecording(recording)
             }
         }
         #endif
     }
 
     #if !os(watchOS)
-    private func attachVideoFile(to recordingId: UUID) async {
-        let tempURL = await videoRecorder.stopRecording()
-        videoRecorder.stopSession()
-        videoDebugLog("[RecordingListView] attachVideoFile: tempURL=\(String(describing: tempURL))")
-        guard let tempURL else { return }
+    private func stopVideoRecording() {
+        let startedAt = videoRecordingStartedAt ?? Date()
+        let recordingId = videoRecordingId ?? UUID()
+        let duration = Date().timeIntervalSince(startedAt)
+        videoRecordingStartedAt = nil
+        videoRecordingId = nil
 
-        guard var recording = store.recordings.first(where: { $0.id == recordingId }) else {
-            videoDebugLog("[RecordingListView] attachVideoFile: recording \(recordingId) not found in store")
-            return
-        }
+        let now = Date()
+        let title = makeRecordingTitle(now: now)
 
-        // Remux the QuickTime capture into an .mp4 container (H.264 + AAC —
-        // plays everywhere). Passthrough, so this is fast; fall back to
-        // attaching the raw .mov if it fails.
-        var videoToSave = tempURL
-        var videoExtension = "mov"
-        do {
-            videoToSave = try await VideoPostProcessor.remuxToMP4(videoURL: tempURL)
-            videoExtension = "mp4"
-        } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: mp4 remux failed (\(error)) — keeping mov")
-        }
+        Task {
+            // Order matters: finish the movie file first, then stop the
+            // session, then flip the toggle (whose onChange stops the session
+            // again — a no-op by then). Stopping the session while the file is
+            // finalizing deadlocks AVFoundation.
+            let tempURL = await videoRecorder.stopRecording()
+            videoRecorder.stopSession()
+            isVideoEnabled = false
+            videoDebugLog("[RecordingListView] stopVideoRecording: tempURL=\(String(describing: tempURL))")
+            guard let tempURL else { return }
 
-        let destURL = StorageLocation.recordingsURL.appendingPathComponent("\(recordingId.uuidString).\(videoExtension)")
-        do {
-            if FileManager.default.fileExists(atPath: destURL.path(percentEncoded: false)) {
-                try FileManager.default.removeItem(at: destURL)
+            // Remux the QuickTime capture into an .mp4 container (H.264 + AAC
+            // — plays everywhere). Passthrough, so it's fast; fall back to the
+            // raw .mov if it fails.
+            var videoToSave = tempURL
+            var videoExtension = "mov"
+            do {
+                videoToSave = try await VideoPostProcessor.remuxToMP4(videoURL: tempURL)
+                videoExtension = "mp4"
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: mp4 remux failed (\(error)) — keeping mov")
             }
-            try FileManager.default.copyItem(at: videoToSave, to: destURL)
-        } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: copy failed: \(error)")
-            return
-        }
 
-        // Replace the mic-recorded m4a with audio extracted from the video —
-        // the video's audio track IS the recording's audio (natively synced),
-        // and transcription then runs on the exact same timeline as video
-        // playback. On failure the mic-recorded m4a stays as the fallback.
-        do {
-            let extracted = try await VideoPostProcessor.extractAudioM4A(from: destURL)
-            let audioName = "\(recordingId.uuidString).m4a"
-            let audioDest = StorageLocation.recordingsURL.appendingPathComponent(audioName)
-            for oldFile in recording.audioFiles {
-                let oldURL = StorageLocation.recordingsURL.appendingPathComponent(oldFile)
-                if FileManager.default.fileExists(atPath: oldURL.path(percentEncoded: false)) {
-                    try? FileManager.default.removeItem(at: oldURL)
+            let videoName = "\(recordingId.uuidString).\(videoExtension)"
+            let videoDest = StorageLocation.recordingsURL.appendingPathComponent(videoName)
+            do {
+                if FileManager.default.fileExists(atPath: videoDest.path(percentEncoded: false)) {
+                    try FileManager.default.removeItem(at: videoDest)
                 }
+                try FileManager.default.copyItem(at: videoToSave, to: videoDest)
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: video copy failed: \(error)")
+                return
             }
-            try FileManager.default.copyItem(at: extracted, to: audioDest)
-            recording.audioFiles = [audioName]
-            videoDebugLog("[RecordingListView] attachVideoFile: replaced audio with video-extracted track")
-        } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: audio extraction failed (\(error)) — keeping mic-recorded audio")
-        }
 
-        recording.videoFile = destURL.lastPathComponent
-        do {
-            try store.update(recording)
-            videoDebugLog("[RecordingListView] attachVideoFile: attached \(destURL.lastPathComponent) to \(recordingId)")
-        } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: store.update failed: \(error)")
+            // The video's audio track IS the recording's audio: extract it to
+            // the m4a the transcription pipeline expects, on the exact same
+            // timeline as video playback.
+            var audioFileNames: [String] = []
+            do {
+                let extracted = try await VideoPostProcessor.extractAudioM4A(from: videoDest)
+                let audioName = "\(recordingId.uuidString).m4a"
+                let audioDest = StorageLocation.recordingsURL.appendingPathComponent(audioName)
+                if FileManager.default.fileExists(atPath: audioDest.path(percentEncoded: false)) {
+                    try FileManager.default.removeItem(at: audioDest)
+                }
+                try FileManager.default.copyItem(at: extracted, to: audioDest)
+                audioFileNames = [audioName]
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: audio extraction failed: \(error)")
+            }
+
+            var recording = MapleRecording(
+                id: recordingId,
+                title: title,
+                audioFiles: audioFileNames,
+                duration: duration,
+                createdAt: now,
+                modifiedAt: now
+            )
+            recording.videoFile = videoName
+
+            do {
+                try store.save(recording)
+                selectedRecordingId = recording.id
+                videoDebugLog("[RecordingListView] stopVideoRecording: saved \(videoName) + \(audioFileNames)")
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: save failed: \(error)")
+            }
+
+            if modelManager.isReady, !audioFileNames.isEmpty {
+                await processRecording(recording)
+            }
         }
     }
     #endif

@@ -49,13 +49,11 @@ final class VideoRecorder: NSObject {
     override init() {
         super.init()
         session.sessionPreset = .high
-        #if os(iOS)
-        // Use the app's shared AVAudioSession instead of letting the capture
-        // session reconfigure it — AudioRecorder's AVAudioEngine (metering/UI)
-        // runs on the same session during recording, and a session-config fight
-        // between the two breaks one or both mic paths.
-        session.automaticallyConfiguresApplicationAudioSession = false
-        #endif
+        // The capture session owns audio entirely while video mode is active —
+        // AudioRecorder never runs alongside it — so its default automatic
+        // audio-session management applies: the OS handles categories, device
+        // selection, and routing (headphones, Bluetooth, speaker) exactly like
+        // the system camera app. No manual AVAudioSession configuration here.
         if session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
@@ -105,26 +103,6 @@ final class VideoRecorder: NSObject {
                     continuation.resume()
                     return
                 }
-                #if os(iOS)
-                // The session doesn't auto-configure the app's audio session
-                // (see init) — so make the shared session record-capable
-                // before the mic input starts flowing, or the session throws
-                // a runtime error ("operation could not be completed") the
-                // moment it runs. Identical category/options to what
-                // AudioRecorder.startRecording() sets, so nothing gets
-                // reconfigured mid-capture when recording begins.
-                do {
-                    let audioSession = AVAudioSession.sharedInstance()
-                    try audioSession.setCategory(
-                        .playAndRecord,
-                        mode: .default,
-                        options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetoothHFP]
-                    )
-                    try audioSession.setActive(true)
-                } catch {
-                    videoDebugLog("[VideoRecorder] startSession: audio session setup failed: \(error.localizedDescription)")
-                }
-                #endif
                 do {
                     let input = try AVCaptureDeviceInput(device: device)
                     self.session.beginConfiguration()

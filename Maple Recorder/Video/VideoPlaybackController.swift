@@ -63,6 +63,13 @@ final class VideoPlaybackController: PlaybackTransport {
     }
 
     func play() {
+        #if os(iOS)
+        // Plain playback category: routing follows the system default
+        // (headphones when connected), and playback ignores the silent
+        // switch. Clears any leftover recording-session configuration.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
         // Restart from the top when play is hit at the end
         if duration > 0, currentTime >= duration - 0.05 {
             avPlayer.seek(to: .zero)

@@ -90,6 +90,16 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
     func play() {
         guard !players.isEmpty else { return }
 
+        #if os(iOS)
+        // Plain playback category: the system routes to whatever the user's
+        // current output is (headphones when connected, speaker otherwise) and
+        // audio plays regardless of the silent switch. Also clears the
+        // recording session's .playAndRecord+defaultToSpeaker config, which
+        // would otherwise force playback out of the built-in speaker.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+
         let chunk = players[currentChunkIndex]
         chunk.player.rate = playbackRate
         chunk.player.play()
