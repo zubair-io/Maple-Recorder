@@ -13,6 +13,19 @@ struct RecordingListView: View {
     var miniRecordingController: MiniRecordingController?
     #endif
     @State private var recorder = AudioRecorder()
+    #if !os(watchOS)
+    @State private var videoRecorder = VideoRecorder()
+    @State private var isVideoEnabled = false
+    #endif
+    // Video recordings run through the capture session alone (no AudioRecorder),
+    // so the view tracks their in-progress state itself. Declared on every
+    // platform (always nil on watchOS) so the shared FAB code compiles there.
+    @State private var videoRecordingId: UUID?
+    @State private var videoRecordingStartedAt: Date?
+
+    private var isCapturing: Bool {
+        recorder.isRecording || videoRecordingStartedAt != nil
+    }
     @State private var recordingURL: URL?
     @State private var selectedRecordingId: UUID?
     @State private var searchText = ""
@@ -295,19 +308,54 @@ struct RecordingListView: View {
 
     private var recordFAB: some View {
         VStack(spacing: 8) {
+            #if !os(watchOS)
+            // Gated on the session's actual running state, not the isVideoEnabled
+            // toggle intent: tearing down this view's AVCaptureVideoPreviewLayer
+            // deallocates it on the main thread, which calls back into the
+            // session (commitConfiguration) to detach. If that races with
+            // session.stopRunning() running concurrently on videoRecorder's
+            // background queue, AVFoundation deadlocks the two threads against
+            // each other (each waiting on a lock the other holds) — the app
+            // beachballs. Waiting for isSessionRunning to actually flip false
+            // (which only happens after stopRunning() has already returned)
+            // guarantees the view's teardown happens strictly after, never
+            // concurrently with, that call.
+            if videoRecorder.isSessionRunning {
+                CameraPreviewView(session: videoRecorder.session)
+                    .frame(width: 160, height: 120)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(MapleTheme.border, lineWidth: 1)
+                    )
+            }
+
+            if let captureError = videoRecorder.captureError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(MapleTheme.error)
+                    Text(captureError)
+                        .font(.caption2)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 12)
+            }
+            #endif
+
             ZStack {
                 if recorder.isRecording {
                     PulsingWaveform(audioLevel: recorder.audioLevel)
                 }
 
                 Button {
-                    if recorder.isRecording {
+                    if isCapturing {
                         stopRecording()
                     } else {
                         startRecording()
                     }
                 } label: {
-                    Image(systemName: recorder.isRecording ? "stop.fill" : "mic.fill")
+                    Image(systemName: isCapturing ? "stop.fill" : "mic.fill")
                         .font(.title2)
                         .foregroundStyle(.white)
                         .frame(width: 64, height: 64)
@@ -322,15 +370,27 @@ struct RecordingListView: View {
                 Text(formatTime(recorder.elapsedTime))
                     .font(.system(.caption, design: .monospaced, weight: .medium))
                     .foregroundStyle(.white)
+            } else if let startedAt = videoRecordingStartedAt {
+                Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
+                    .font(.system(.caption, design: .monospaced, weight: .medium))
+                    .foregroundStyle(.white)
             } else {
-                #if os(macOS)
-                Toggle(isOn: $recorder.includeSystemAudio) {
-                    Label("Include system audio", systemImage: "speaker.wave.2")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textPrimary)
+                HStack(spacing: 8) {
+                    #if os(macOS)
+                    RecordingOptionChip(
+                        title: "System audio",
+                        systemImage: "speaker.wave.2",
+                        isOn: $recorder.includeSystemAudio
+                    )
+                    #endif
+                    #if !os(watchOS)
+                    RecordingOptionChip(
+                        title: "Video",
+                        systemImage: "video.fill",
+                        isOn: $isVideoEnabled
+                    )
+                    #endif
                 }
-                .toggleStyle(.checkbox)
-                #endif
             }
         }
         .padding(.bottom, 16)
@@ -350,11 +410,49 @@ struct RecordingListView: View {
             )
             .ignoresSafeArea(.container, edges: .bottom)
         )
+        #if !os(watchOS)
+        .onChange(of: isVideoEnabled) { _, newValue in
+            if newValue {
+                Task { await enableVideoPreview() }
+            } else {
+                videoRecorder.stopSession()
+            }
+        }
+        #endif
     }
+
+    #if !os(watchOS)
+    private func enableVideoPreview() async {
+        videoRecorder.captureError = nil
+        let granted = await videoRecorder.requestPermissionIfNeeded()
+        guard granted else {
+            isVideoEnabled = false
+            videoRecorder.captureError = "Camera access denied. Enable it in System Settings > Privacy > Camera."
+            return
+        }
+        await videoRecorder.startSession(preferredDeviceID: settingsManager.preferredCameraID)
+    }
+    #endif
 
     // MARK: - Actions
 
     private func startRecording() {
+        #if !os(watchOS)
+        // Video mode records through the capture session ALONE — audio+video
+        // in one system-managed pipeline (routing, devices, and the audio
+        // session are entirely the OS's business). AudioRecorder is not
+        // involved; running both at once is what caused every freeze and
+        // session-config failure this feature has hit.
+        if isVideoEnabled, videoRecorder.isSessionRunning {
+            let id = UUID()
+            videoRecordingId = id
+            videoRecordingStartedAt = Date()
+            videoRecorder.startRecording(id: id)
+            videoDebugLog("[RecordingListView] startRecording: video-only flow, id=\(id)")
+            return
+        }
+        #endif
+
         #if os(macOS)
         miniRecordingController?.recorder = recorder
         miniRecordingController?.onStopRequested = { [self] in
@@ -366,11 +464,41 @@ struct RecordingListView: View {
                 recordingURL = try await recorder.startRecording()
             } catch {
                 print("Failed to start recording: \(error)")
+                #if !os(watchOS)
+                videoDebugLog("[RecordingListView] startRecording FAILED: \(error)")
+                #endif
             }
         }
     }
 
+    private func makeRecordingTitle(now: Date) -> String {
+        #if !os(watchOS)
+        let calTitle = settingsManager.calendarEnabled
+            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
+            : nil
+        switch settingsManager.calendarTitleMode {
+        case .exactName where calTitle != nil:
+            return calTitle!
+        case .hint where calTitle != nil:
+            return "\(calTitle!) — Recording"
+        default:
+            break
+        }
+        #endif
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "Recording \(formatter.string(from: now))"
+    }
+
     private func stopRecording() {
+        #if !os(watchOS)
+        if videoRecordingStartedAt != nil {
+            stopVideoRecording()
+            return
+        }
+        #endif
+
         #if os(macOS)
         miniRecordingController?.recorder = nil
         miniRecordingController?.onStopRequested = nil
@@ -382,28 +510,7 @@ struct RecordingListView: View {
         guard !result.micURLs.isEmpty else { return }
 
         let now = Date()
-        let title: String
-        #if !os(watchOS)
-        let calTitle = settingsManager.calendarEnabled
-            ? calendarManager?.currentMeetingTitle(calendarIdentifiers: settingsManager.selectedCalendarIdentifiers)
-            : nil
-        switch settingsManager.calendarTitleMode {
-        case .exactName where calTitle != nil:
-            title = calTitle!
-        case .hint where calTitle != nil:
-            title = "\(calTitle!) — Recording"
-        default:
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            title = "Recording \(formatter.string(from: now))"
-        }
-        #else
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        title = "Recording \(formatter.string(from: now))"
-        #endif
+        let title = makeRecordingTitle(now: now)
 
         // Copy all mic chunk files to recordings directory
         var audioFileNames: [String] = []
@@ -449,6 +556,94 @@ struct RecordingListView: View {
         }
         #endif
     }
+
+    #if !os(watchOS)
+    private func stopVideoRecording() {
+        let startedAt = videoRecordingStartedAt ?? Date()
+        let recordingId = videoRecordingId ?? UUID()
+        let duration = Date().timeIntervalSince(startedAt)
+        videoRecordingStartedAt = nil
+        videoRecordingId = nil
+
+        let now = Date()
+        let title = makeRecordingTitle(now: now)
+
+        Task {
+            // Order matters: finish the movie file first, then stop the
+            // session, then flip the toggle (whose onChange stops the session
+            // again — a no-op by then). Stopping the session while the file is
+            // finalizing deadlocks AVFoundation.
+            let tempURL = await videoRecorder.stopRecording()
+            videoRecorder.stopSession()
+            isVideoEnabled = false
+            videoDebugLog("[RecordingListView] stopVideoRecording: tempURL=\(String(describing: tempURL))")
+            guard let tempURL else { return }
+
+            // Remux the QuickTime capture into an .mp4 container (H.264 + AAC
+            // — plays everywhere). Passthrough, so it's fast; fall back to the
+            // raw .mov if it fails.
+            var videoToSave = tempURL
+            var videoExtension = "mov"
+            do {
+                videoToSave = try await VideoPostProcessor.remuxToMP4(videoURL: tempURL)
+                videoExtension = "mp4"
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: mp4 remux failed (\(error)) — keeping mov")
+            }
+
+            let videoName = "\(recordingId.uuidString).\(videoExtension)"
+            let videoDest = StorageLocation.recordingsURL.appendingPathComponent(videoName)
+            do {
+                if FileManager.default.fileExists(atPath: videoDest.path(percentEncoded: false)) {
+                    try FileManager.default.removeItem(at: videoDest)
+                }
+                try FileManager.default.copyItem(at: videoToSave, to: videoDest)
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: video copy failed: \(error)")
+                return
+            }
+
+            // The video's audio track IS the recording's audio: extract it to
+            // the m4a the transcription pipeline expects, on the exact same
+            // timeline as video playback.
+            var audioFileNames: [String] = []
+            do {
+                let extracted = try await VideoPostProcessor.extractAudioM4A(from: videoDest)
+                let audioName = "\(recordingId.uuidString).m4a"
+                let audioDest = StorageLocation.recordingsURL.appendingPathComponent(audioName)
+                if FileManager.default.fileExists(atPath: audioDest.path(percentEncoded: false)) {
+                    try FileManager.default.removeItem(at: audioDest)
+                }
+                try FileManager.default.copyItem(at: extracted, to: audioDest)
+                audioFileNames = [audioName]
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: audio extraction failed: \(error)")
+            }
+
+            var recording = MapleRecording(
+                id: recordingId,
+                title: title,
+                audioFiles: audioFileNames,
+                duration: duration,
+                createdAt: now,
+                modifiedAt: now
+            )
+            recording.videoFile = videoName
+
+            do {
+                try store.save(recording)
+                selectedRecordingId = recording.id
+                videoDebugLog("[RecordingListView] stopVideoRecording: saved \(videoName) + \(audioFileNames)")
+            } catch {
+                videoDebugLog("[RecordingListView] stopVideoRecording: save failed: \(error)")
+            }
+
+            if modelManager.isReady, !audioFileNames.isEmpty {
+                await processRecording(recording)
+            }
+        }
+    }
+    #endif
 
     #if !os(watchOS)
     private func processRecording(_ recording: MapleRecording) async {

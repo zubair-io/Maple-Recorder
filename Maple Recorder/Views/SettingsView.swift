@@ -1,4 +1,5 @@
 #if !os(watchOS)
+import AVFoundation
 import EventKit
 import SwiftUI
 
@@ -152,6 +153,17 @@ struct SettingsView: View {
             Text("Audio is captured at 48 kHz / 128 kbps AAC.")
                 .font(.caption)
                 .foregroundStyle(MapleTheme.textSecondary)
+
+            Picker(selection: $settingsManager.preferredCameraID) {
+                Text("Default").tag(nil as String?)
+                ForEach(VideoRecorder.availableDevices(), id: \.uniqueID) { device in
+                    Text(device.localizedName).tag(device.uniqueID as String?)
+                }
+            } label: {
+                Text("Camera")
+            }
+            .pickerStyle(.menu)
+            .padding(.top, 4)
         }
     }
 

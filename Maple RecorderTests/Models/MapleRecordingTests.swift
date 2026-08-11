@@ -84,4 +84,41 @@ struct MapleRecordingTests {
         #expect(decoded.speakers.isEmpty)
         #expect(decoded.promptResults.isEmpty)
     }
+
+    @Test func videoFileRoundTrip() throws {
+        let date = Date(timeIntervalSince1970: 1700000000)
+        var recording = MapleRecording(
+            title: "Test Recording",
+            audioFiles: ["test.m4a"],
+            duration: 60.0,
+            createdAt: date,
+            modifiedAt: date
+        )
+        recording.videoFile = "test.mov"
+
+        let encoder = makeEncoder()
+        let data = try encoder.encode(recording.metadata)
+
+        let decoder = makeDecoder()
+        let decoded = try decoder.decode(MapleRecording.MetadataJSON.self, from: data)
+
+        #expect(decoded.video == "test.mov")
+
+        let rebuilt = MapleRecording(title: recording.title, summary: recording.summary, metadata: decoded)
+        #expect(rebuilt.videoFile == "test.mov")
+    }
+
+    @Test func decodingMetadataWithoutVideoFieldDefaultsToNil() throws {
+        let json = """
+        {"id":"\(UUID().uuidString)","audio":["a.m4a"],"duration":1,"created_at":"2023-11-14T22:13:20Z","modified_at":"2023-11-14T22:13:20Z","speakers":[],"transcript":[],"prompt_results":[],"tags":[]}
+        """
+        let decoder = makeDecoder()
+        let decoded = try decoder.decode(MapleRecording.MetadataJSON.self, from: Data(json.utf8))
+        #expect(decoded.video == nil)
+    }
+
+    @Test func defaultVideoFileIsNil() {
+        let recording = MapleRecording(title: "Untitled")
+        #expect(recording.videoFile == nil)
+    }
 }

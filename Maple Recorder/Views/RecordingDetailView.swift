@@ -4,6 +4,7 @@ import AppKit
 #elseif os(iOS)
 import UIKit
 #endif
+import AVKit
 
 struct RecordingDetailView: View {
     @Bindable var store: RecordingStore
@@ -44,6 +45,53 @@ struct RecordingDetailView: View {
         store.recordings.first { $0.id == recordingId }
     }
 
+    #if !os(watchOS)
+    @State private var videoController = VideoPlaybackController()
+
+    /// The active transport for transcript taps and sync: the video when the
+    /// recording has one, the audio player otherwise.
+    private var activeTransport: any PlaybackTransport {
+        recording?.videoFile != nil ? videoController : player
+    }
+    #endif
+
+    @ViewBuilder
+    private func audioPlaybackInset(recording: MapleRecording) -> some View {
+        if !recording.audioFiles.isEmpty {
+            if isLoadingAudio {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Downloading audio…")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(MapleTheme.surface)
+            } else {
+                PlaybackBar(
+                    player: player,
+                    onToggle: {
+                        if !audioLoaded {
+                            Task { await loadAudioOnDemand(recording: recording) }
+                            return
+                        }
+                        player.togglePlayPause()
+                        if player.isPlaying {
+                            syncEngine.start(player: player, transcript: recording.transcript)
+                        } else {
+                            syncEngine.stop()
+                        }
+                    },
+                    onSeek: { time in
+                        player.seek(to: time)
+                    }
+                )
+            }
+        }
+    }
+
     var body: some View {
         if var recording = recording {
             ZStack(alignment: .bottomTrailing) {
@@ -52,6 +100,9 @@ struct RecordingDetailView: View {
                         meetingOverviewSection(recording: recording)
                         detailsSection(recording: recording)
                         tagsSection(recording: recording)
+                        #if !os(watchOS)
+                        videoPlayerSection(recording: recording)
+                        #endif
                         transcriptSection(recording: recording)
                         #if !os(watchOS)
                         aiInsightsSection(recording: recording)
@@ -66,39 +117,32 @@ struct RecordingDetailView: View {
                     .padding()
                 }
                 .safeAreaInset(edge: .bottom) {
-                    if !recording.audioFiles.isEmpty {
-                        if isLoadingAudio {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Downloading audio…")
-                                    .font(.caption)
-                                    .foregroundStyle(MapleTheme.textSecondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(MapleTheme.surface)
-                        } else {
-                            PlaybackBar(
-                                player: player,
-                                onToggle: {
-                                    if !audioLoaded {
-                                        Task { await loadAudioOnDemand(recording: recording) }
-                                        return
-                                    }
-                                    player.togglePlayPause()
-                                    if player.isPlaying {
-                                        syncEngine.start(player: player, transcript: recording.transcript)
-                                    } else {
-                                        syncEngine.stop()
-                                    }
-                                },
-                                onSeek: { time in
-                                    player.seek(to: time)
+                    #if !os(watchOS)
+                    if recording.videoFile != nil {
+                        // Recording has video: the transport IS the video —
+                        // the play button drives it (frames render in
+                        // videoPlayerSection, which shares the same AVPlayer),
+                        // and the transcript sync follows the video's clock.
+                        PlaybackBar(
+                            player: videoController,
+                            onToggle: {
+                                videoController.togglePlayPause()
+                                if videoController.isPlaying {
+                                    syncEngine.start(player: videoController, transcript: recording.transcript)
+                                } else {
+                                    syncEngine.stop()
                                 }
-                            )
-                        }
+                            },
+                            onSeek: { time in
+                                videoController.seek(to: time)
+                            }
+                        )
+                    } else {
+                        audioPlaybackInset(recording: recording)
                     }
+                    #else
+                    audioPlaybackInset(recording: recording)
+                    #endif
                 }
 
                 #if !os(watchOS)
@@ -171,11 +215,14 @@ struct RecordingDetailView: View {
             }
             .onChange(of: recordingId) {
                 // On macOS the detail column reuses this view when the selection
-                // changes, so the audio player would keep playing the previous
-                // recording. Tear it down and load the newly selected recording.
+                // changes, so the audio/video player would keep playing the
+                // previous recording. Tear both down and load the new one —
+                // videoPlayerSection's .task(id:) reloads the video if the new
+                // recording has one.
                 syncEngine.stop()
                 player.pause()
                 player.seek(to: 0)
+                videoController.unload()
                 audioLoaded = false
                 isLoadingAudio = false
                 if let rec = store.recordings.first(where: { $0.id == recordingId }) {
@@ -365,6 +412,23 @@ struct RecordingDetailView: View {
         #endif
     }
 
+    // MARK: - Video Player Section
+
+    #if !os(watchOS)
+    @ViewBuilder
+    private func videoPlayerSection(recording: MapleRecording) -> some View {
+        if let videoFile = recording.videoFile {
+            let videoURL = StorageLocation.recordingsURL.appendingPathComponent(videoFile)
+            VideoPlayer(player: videoController.avPlayer)
+                .frame(height: 220)
+                .clipShape(.rect(cornerRadius: 12))
+                .task(id: videoFile) {
+                    await videoController.load(url: videoURL)
+                }
+        }
+    }
+    #endif
+
     // MARK: - Transcript Section
 
     @ViewBuilder
@@ -421,7 +485,7 @@ struct RecordingDetailView: View {
                         syncEngine: syncEngine,
                         searchQuery: searchQuery,
                         onSeekToWord: { word in
-                            player.seek(to: word.start)
+                            activeTransport.seek(to: word.start)
                         },
                         onRenameSpeaker: { speaker in
                             editingSpeaker = speaker

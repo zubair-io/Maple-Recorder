@@ -11,6 +11,8 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Maple Recorder needs microphone access to record audio.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Maple Recorder needs camera access to record video alongside your audio.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Maple Recorder checks your calendar to automatically name recordings after the current meeting.</string>
 	<key>NSUbiquitousContainers</key>

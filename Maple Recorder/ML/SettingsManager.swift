@@ -74,6 +74,16 @@ final class SettingsManager {
         }
     }
 
+    // MARK: - Camera Settings
+
+    var preferredCameraID: String? {
+        get { settings.preferredCameraID }
+        set {
+            settings.preferredCameraID = newValue
+            try? save()
+        }
+    }
+
     // MARK: - Persistence
 
     private static var settingsURL: URL {

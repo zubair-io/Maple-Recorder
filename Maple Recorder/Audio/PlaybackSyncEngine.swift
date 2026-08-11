@@ -8,11 +8,11 @@ final class PlaybackSyncEngine {
     var shouldAutoScroll: Bool = true
 
     private var timer: Timer?
-    private var player: AudioPlayer?
+    private var player: (any PlaybackTransport)?
     private var transcript: [TranscriptSegment] = []
     private var lastManualScrollTime: Date = .distantPast
 
-    func start(player: AudioPlayer, transcript: [TranscriptSegment]) {
+    func start(player: any PlaybackTransport, transcript: [TranscriptSegment]) {
         self.player = player
         self.transcript = transcript
         stopTimer()

@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct PlaybackBar: View {
-    @Bindable var player: AudioPlayer
+struct PlaybackBar<Player: PlaybackTransport>: View {
+    @Bindable var player: Player
     var onToggle: () -> Void
     var onSeek: (TimeInterval) -> Void
 

@@ -152,6 +152,13 @@ final class RecordingStore {
             }
         }
 
+        if let videoFile = recording.videoFile {
+            let videoURL = recordingsURL.appendingPathComponent(videoFile)
+            if fileManager.fileExists(atPath: videoURL.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: videoURL)
+            }
+        }
+
         recordings.removeAll { $0.id == recording.id }
         mutationGeneration += 1
     }
@@ -179,7 +186,13 @@ final class RecordingStore {
             diarizationManager: diarization,
             summarizationProvider: summarizationProvider
         )
-        var updated = recording
+        // Re-fetch the current stored copy rather than mutating the `recording`
+        // snapshot passed in: this runs concurrently with other in-flight
+        // updates to the same recording (e.g. RecordingListView attaching a
+        // video file after the recording stops), and merging onto a stale
+        // snapshot here would silently overwrite whatever that other update
+        // already saved.
+        var updated = recordings.first(where: { $0.id == recording.id }) ?? recording
         updated.transcript = result.segments
         updated.speakers = result.speakers
         updated.summary = result.summary
