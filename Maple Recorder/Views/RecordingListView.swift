@@ -417,7 +417,7 @@ struct RecordingListView: View {
             videoRecorder.captureError = "Camera access denied. Enable it in System Settings > Privacy > Camera."
             return
         }
-        videoRecorder.startSession(preferredDeviceID: settingsManager.preferredCameraID)
+        await videoRecorder.startSession(preferredDeviceID: settingsManager.preferredCameraID)
     }
     #endif
 
@@ -434,7 +434,13 @@ struct RecordingListView: View {
             do {
                 recordingURL = try await recorder.startRecording()
                 #if !os(watchOS)
-                if isVideoEnabled, let recordingId = recorder.recordingId {
+                // Gated on isSessionRunning (the camera actually finished
+                // starting), not isVideoEnabled (the toggle intent, true the
+                // instant the chip is tapped) — starting the movie file output
+                // before the session has a connected input silently records
+                // nothing.
+                videoDebugLog("[RecordingListView] startRecording: isVideoEnabled=\(isVideoEnabled), isSessionRunning=\(videoRecorder.isSessionRunning), recordingId=\(String(describing: recorder.recordingId))")
+                if videoRecorder.isSessionRunning, let recordingId = recorder.recordingId {
                     videoRecorder.startRecording(id: recordingId)
                 }
                 #endif
@@ -453,18 +459,34 @@ struct RecordingListView: View {
 
         let duration = recorder.elapsedTime
         let result = recorder.stopRecording()
-        guard !result.micURLs.isEmpty else { return }
+        guard !result.micURLs.isEmpty else {
+            #if !os(watchOS)
+            // No audio means no recording gets saved — still shut video down
+            // (movie output first, then session, then the toggle) or the
+            // camera would keep capturing forever.
+            if isVideoEnabled {
+                Task {
+                    _ = await videoRecorder.stopRecording()
+                    videoRecorder.stopSession()
+                    isVideoEnabled = false
+                }
+            }
+            #endif
+            return
+        }
 
         #if !os(watchOS)
+        // isVideoEnabled must NOT be flipped false here: the flip fires the
+        // FAB's onChange handler, whose "off" branch stops the capture session
+        // while the movie file output is still finalizing. That discards the
+        // in-flight video (the finished-file delegate fires before anything
+        // awaits it, so the .mov is orphaned in tmp) and re-opens the
+        // session-stop-during-finalize AVFoundation deadlock. The flip happens
+        // in the Task below, after attachVideoFile() has fully stopped video.
         let wasVideoEnabled = isVideoEnabled
-        isVideoEnabled = false
         if !wasVideoEnabled {
             videoRecorder.stopSession()
         }
-        // If video was enabled, the session is stopped in attachVideoFile(to:) —
-        // only after the movie file finishes writing. Stopping it here instead
-        // would tear the capture session down while stopRecording() below is
-        // still trying to finalize the file through it, deadlocking AVFoundation.
         #endif
 
         let now = Date()
@@ -531,6 +553,7 @@ struct RecordingListView: View {
         if wasVideoEnabled {
             Task {
                 await attachVideoFile(to: recordingId)
+                isVideoEnabled = false
             }
         }
 
@@ -547,13 +570,26 @@ struct RecordingListView: View {
     private func attachVideoFile(to recordingId: UUID) async {
         let tempURL = await videoRecorder.stopRecording()
         videoRecorder.stopSession()
+        videoDebugLog("[RecordingListView] attachVideoFile: tempURL=\(String(describing: tempURL))")
         guard let tempURL else { return }
         let destURL = StorageLocation.recordingsURL.appendingPathComponent(tempURL.lastPathComponent)
-        try? FileManager.default.copyItem(at: tempURL, to: destURL)
+        do {
+            try FileManager.default.copyItem(at: tempURL, to: destURL)
+        } catch {
+            videoDebugLog("[RecordingListView] attachVideoFile: copy failed: \(error)")
+        }
 
-        guard var recording = store.recordings.first(where: { $0.id == recordingId }) else { return }
+        guard var recording = store.recordings.first(where: { $0.id == recordingId }) else {
+            videoDebugLog("[RecordingListView] attachVideoFile: recording \(recordingId) not found in store")
+            return
+        }
         recording.videoFile = destURL.lastPathComponent
-        try? store.update(recording)
+        do {
+            try store.update(recording)
+            videoDebugLog("[RecordingListView] attachVideoFile: attached \(destURL.lastPathComponent) to \(recordingId)")
+        } catch {
+            videoDebugLog("[RecordingListView] attachVideoFile: store.update failed: \(error)")
+        }
     }
     #endif
 
