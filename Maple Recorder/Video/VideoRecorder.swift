@@ -46,15 +46,16 @@ final class VideoRecorder: NSObject {
     /// stopRecording() returns this instead of losing the finished file.
     private var pendingFinishedURL: URL?
 
-    /// Wall-clock time the movie file actually began writing (didStartRecording
-    /// delegate) — i.e. where the video's timeline begins. Compared against
-    /// AudioRecorder.micFirstBufferAt when muxing the mic audio into the video
-    /// so the two tracks line up.
-    private(set) var movieStartedAt: Date?
-
     override init() {
         super.init()
         session.sessionPreset = .high
+        #if os(iOS)
+        // Use the app's shared AVAudioSession instead of letting the capture
+        // session reconfigure it — AudioRecorder's AVAudioEngine (metering/UI)
+        // runs on the same session during recording, and a session-config fight
+        // between the two breaks one or both mic paths.
+        session.automaticallyConfiguresApplicationAudioSession = false
+        #endif
         if session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
@@ -67,6 +68,11 @@ final class VideoRecorder: NSObject {
     }
 
     func requestPermissionIfNeeded() async -> Bool {
+        // Mic access too: the session records the audio track natively so the
+        // video has sample-accurately synced sound. Usually already granted
+        // (the audio recorder needs it), so this is a no-op prompt-wise; a
+        // denial doesn't block video — the track just records silent.
+        _ = await AVCaptureDevice.requestAccess(for: .audio)
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             permissionGranted = true
@@ -111,7 +117,41 @@ final class VideoRecorder: NSObject {
                         self.session.addInput(input)
                         self.deviceInput = input
                     }
+
+                    // Mic audio is captured in the same session so the movie's
+                    // audio track is natively synced with the video frames —
+                    // transcription audio is later extracted from this file.
+                    let hasAudioInput = self.session.inputs.contains {
+                        ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
+                    }
+                    if !hasAudioInput, let mic = AVCaptureDevice.default(for: .audio) {
+                        do {
+                            let micInput = try AVCaptureDeviceInput(device: mic)
+                            if self.session.canAddInput(micInput) {
+                                self.session.addInput(micInput)
+                            }
+                        } catch {
+                            // Video continues without sound; the mic-recorded
+                            // m4a remains the audio fallback.
+                            videoDebugLog("[VideoRecorder] startSession: mic input failed: \(error.localizedDescription)")
+                        }
+                    }
+
                     self.session.commitConfiguration()
+
+                    // H.264 (instead of the platform-default HEVC) so the
+                    // saved .mp4 plays everywhere. availableVideoCodecTypes
+                    // is iOS-only; every Mac supports H.264 encoding.
+                    if let videoConnection = self.movieOutput.connection(with: .video) {
+                        #if os(iOS)
+                        if self.movieOutput.availableVideoCodecTypes.contains(.h264) {
+                            self.movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.h264], for: videoConnection)
+                        }
+                        #else
+                        self.movieOutput.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.h264], for: videoConnection)
+                        #endif
+                    }
+
                     self.session.startRunning()
                     let isRunning = self.session.isRunning
                     let connections = self.movieOutput.connections.count
@@ -144,7 +184,6 @@ final class VideoRecorder: NSObject {
 
     func startRecording(id: UUID) {
         pendingFinishedURL = nil
-        movieStartedAt = nil
         let tempDir = FileManager.default.temporaryDirectory
         let url = tempDir.appendingPathComponent("\(id.uuidString).mov")
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
@@ -237,13 +276,7 @@ extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
         didStartRecordingTo fileURL: URL,
         from connections: [AVCaptureConnection]
     ) {
-        // Capture the timestamp here, not after the actor hop — the hop's
-        // queueing delay would skew the audio/video alignment it exists for.
-        let startedAt = Date()
         videoDebugLog("[VideoRecorder] fileOutput didStartRecordingTo: \(fileURL.lastPathComponent)")
-        Task { @MainActor in
-            self.movieStartedAt = startedAt
-        }
     }
 
     nonisolated func fileOutput(

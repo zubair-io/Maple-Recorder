@@ -550,17 +550,19 @@ struct RecordingListView: View {
         }
 
         #if !os(watchOS)
-        if wasVideoEnabled {
-            Task {
+        Task {
+            // Video must be fully attached BEFORE processing starts: attach
+            // replaces the recording's m4a with audio extracted from the video
+            // so transcription runs on the video's exact timeline — the
+            // pipeline must read that file, not the mic-recorded one it would
+            // race with otherwise.
+            if wasVideoEnabled {
                 await attachVideoFile(to: recordingId)
                 isVideoEnabled = false
             }
-        }
-
-        // Kick off processing pipeline
-        if modelManager.isReady {
-            Task {
-                await processRecording(recording)
+            if modelManager.isReady {
+                let current = store.recordings.first(where: { $0.id == recordingId }) ?? recording
+                await processRecording(current)
             }
         }
         #endif
@@ -578,25 +580,19 @@ struct RecordingListView: View {
             return
         }
 
-        // The capture session records video only (the mic belongs to
-        // AudioRecorder) — merge the recorded mic audio into the file here so
-        // the saved video plays with sound. The audio timeline starts earlier
-        // than the video's, so trim that lead-in to keep lip-sync. On failure,
-        // fall back to attaching the silent video: better than losing footage.
+        // Remux the QuickTime capture into an .mp4 container (H.264 + AAC —
+        // plays everywhere). Passthrough, so this is fast; fall back to
+        // attaching the raw .mov if it fails.
         var videoToSave = tempURL
-        let audioURLs = recording.audioFiles.map { StorageLocation.recordingsURL.appendingPathComponent($0) }
-        var audioLeadIn: TimeInterval = 0
-        if let audioStart = recorder.micFirstBufferAt, let videoStart = videoRecorder.movieStartedAt {
-            audioLeadIn = max(0, videoStart.timeIntervalSince(audioStart))
-        }
+        var videoExtension = "mov"
         do {
-            videoToSave = try await VideoAudioMuxer.muxedVideo(videoURL: tempURL, audioURLs: audioURLs, audioLeadIn: audioLeadIn)
-            videoDebugLog("[RecordingListView] attachVideoFile: muxed audio into video (leadIn=\(audioLeadIn)s)")
+            videoToSave = try await VideoPostProcessor.remuxToMP4(videoURL: tempURL)
+            videoExtension = "mp4"
         } catch {
-            videoDebugLog("[RecordingListView] attachVideoFile: mux failed (\(error)) — saving silent video")
+            videoDebugLog("[RecordingListView] attachVideoFile: mp4 remux failed (\(error)) — keeping mov")
         }
 
-        let destURL = StorageLocation.recordingsURL.appendingPathComponent("\(recordingId.uuidString).mov")
+        let destURL = StorageLocation.recordingsURL.appendingPathComponent("\(recordingId.uuidString).\(videoExtension)")
         do {
             if FileManager.default.fileExists(atPath: destURL.path(percentEncoded: false)) {
                 try FileManager.default.removeItem(at: destURL)
@@ -604,6 +600,28 @@ struct RecordingListView: View {
             try FileManager.default.copyItem(at: videoToSave, to: destURL)
         } catch {
             videoDebugLog("[RecordingListView] attachVideoFile: copy failed: \(error)")
+            return
+        }
+
+        // Replace the mic-recorded m4a with audio extracted from the video —
+        // the video's audio track IS the recording's audio (natively synced),
+        // and transcription then runs on the exact same timeline as video
+        // playback. On failure the mic-recorded m4a stays as the fallback.
+        do {
+            let extracted = try await VideoPostProcessor.extractAudioM4A(from: destURL)
+            let audioName = "\(recordingId.uuidString).m4a"
+            let audioDest = StorageLocation.recordingsURL.appendingPathComponent(audioName)
+            for oldFile in recording.audioFiles {
+                let oldURL = StorageLocation.recordingsURL.appendingPathComponent(oldFile)
+                if FileManager.default.fileExists(atPath: oldURL.path(percentEncoded: false)) {
+                    try? FileManager.default.removeItem(at: oldURL)
+                }
+            }
+            try FileManager.default.copyItem(at: extracted, to: audioDest)
+            recording.audioFiles = [audioName]
+            videoDebugLog("[RecordingListView] attachVideoFile: replaced audio with video-extracted track")
+        } catch {
+            videoDebugLog("[RecordingListView] attachVideoFile: audio extraction failed (\(error)) — keeping mic-recorded audio")
         }
 
         recording.videoFile = destURL.lastPathComponent
