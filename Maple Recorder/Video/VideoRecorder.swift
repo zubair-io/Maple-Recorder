@@ -105,6 +105,22 @@ final class VideoRecorder: NSObject {
                     continuation.resume()
                     return
                 }
+                #if os(iOS)
+                // The session doesn't auto-configure the app's audio session
+                // (see init) — so make the shared session record-capable
+                // before the mic input starts flowing, or the session throws
+                // a runtime error ("operation could not be completed") the
+                // moment it runs. Identical category/options to what
+                // AudioRecorder.startRecording() sets, so nothing gets
+                // reconfigured mid-capture when recording begins.
+                do {
+                    let audioSession = AVAudioSession.sharedInstance()
+                    try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+                    try audioSession.setActive(true)
+                } catch {
+                    videoDebugLog("[VideoRecorder] startSession: audio session setup failed: \(error.localizedDescription)")
+                }
+                #endif
                 do {
                     let input = try AVCaptureDeviceInput(device: device)
                     self.session.beginConfiguration()
@@ -237,8 +253,9 @@ final class VideoRecorder: NSObject {
     }
 
     @objc private func handleRuntimeError(_ notification: Notification) {
-        let description = (notification.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription
-            ?? "Camera stopped unexpectedly."
+        let underlying = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
+        let description = underlying?.localizedDescription ?? "Camera stopped unexpectedly."
+        videoDebugLog("[VideoRecorder] runtime error: \(String(describing: underlying))")
         Task { @MainActor in
             self.isSessionRunning = false
             self.captureError = description
