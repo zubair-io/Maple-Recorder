@@ -84,4 +84,18 @@ struct MapleRecordingTests {
         #expect(decoded.speakers.isEmpty)
         #expect(decoded.promptResults.isEmpty)
     }
+
+    @Test func legacyMetadataDefaultsNotesAndScreenshots() throws {
+        let recording = MapleRecording(title: "Legacy")
+        let data = try makeEncoder().encode(recording.metadata)
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "screenshots")
+        object.removeValue(forKey: "user_notes")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try makeDecoder().decode(MapleRecording.MetadataJSON.self, from: legacyData)
+
+        #expect(decoded.screenshots.isEmpty)
+        #expect(decoded.userNotes.isEmpty)
+    }
 }

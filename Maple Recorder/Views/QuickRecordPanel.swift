@@ -27,6 +27,7 @@ final class FloatingRecordPanel: NSPanel {
         animationBehavior = .utilityWindow
         backgroundColor = .clear
         isOpaque = false
+        sharingType = .none
 
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             standardWindowButton(button)?.isHidden = true
@@ -374,6 +375,7 @@ struct QuickRecordView: View {
 
     private func startRecording() {
         recorder.includeSystemAudio = controller.includeSystemAudio
+        recorder.settingsManager = settingsManager
         Task {
             do {
                 recordingURL = try await recorder.startRecording()
@@ -422,7 +424,7 @@ struct QuickRecordView: View {
             systemAudioFileNames.append(fileName)
         }
 
-        let recording = MapleRecording(
+        var recording = MapleRecording(
             id: recorder.recordingId ?? UUID(),
             title: title,
             audioFiles: audioFileNames,
@@ -431,6 +433,8 @@ struct QuickRecordView: View {
             createdAt: now,
             modifiedAt: now
         )
+        recording.screenshots = persistScreenshots(result.screenshots)
+        recording.userNotes = result.userNotes
         try? store.save(recording)
 
         // Trigger processing
@@ -459,6 +463,21 @@ struct QuickRecordView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func persistScreenshots(_ captures: [CapturedTimelineScreenshot]) -> [TimelineScreenshot] {
+        captures.compactMap { capture in
+            let fileName = capture.sourceURL.lastPathComponent
+            let destination = StorageLocation.recordingsURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.copyItem(at: capture.sourceURL, to: destination)
+                try? FileManager.default.removeItem(at: capture.sourceURL)
+                return TimelineScreenshot(fileName: fileName, timestamp: capture.timestamp)
+            } catch {
+                print("Failed to save timeline screenshot: \(error.localizedDescription)")
+                return nil
+            }
+        }
     }
 }
 #endif

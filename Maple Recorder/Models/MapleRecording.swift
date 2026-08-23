@@ -13,6 +13,8 @@ struct MapleRecording: Identifiable, Sendable {
     var transcript: [TranscriptSegment]
     var promptResults: [PromptResult]
     var tags: [String]
+    var screenshots: [TimelineScreenshot]
+    var userNotes: String
 
     init(
         id: UUID = UUID(),
@@ -26,7 +28,9 @@ struct MapleRecording: Identifiable, Sendable {
         speakers: [Speaker] = [],
         transcript: [TranscriptSegment] = [],
         promptResults: [PromptResult] = [],
-        tags: [String] = []
+        tags: [String] = [],
+        screenshots: [TimelineScreenshot] = [],
+        userNotes: String = ""
     ) {
         self.id = id
         self.title = title
@@ -40,6 +44,8 @@ struct MapleRecording: Identifiable, Sendable {
         self.transcript = transcript
         self.promptResults = promptResults
         self.tags = tags
+        self.screenshots = screenshots
+        self.userNotes = userNotes
     }
 }
 
@@ -81,6 +87,8 @@ extension MapleRecording {
         var transcript: [TranscriptSegment]
         var promptResults: [PromptResult]
         var tags: [String]
+        var screenshots: [TimelineScreenshot]
+        var userNotes: String
 
         enum CodingKeys: String, CodingKey {
             case id, audio, duration, speakers, transcript, tags
@@ -88,6 +96,8 @@ extension MapleRecording {
             case createdAt = "created_at"
             case modifiedAt = "modified_at"
             case promptResults = "prompt_results"
+            case screenshots
+            case userNotes = "user_notes"
         }
 
         init(
@@ -100,7 +110,9 @@ extension MapleRecording {
             speakers: [Speaker],
             transcript: [TranscriptSegment],
             promptResults: [PromptResult],
-            tags: [String]
+            tags: [String],
+            screenshots: [TimelineScreenshot] = [],
+            userNotes: String = ""
         ) {
             self.id = id
             self.audio = audio
@@ -112,6 +124,8 @@ extension MapleRecording {
             self.transcript = transcript
             self.promptResults = promptResults
             self.tags = tags
+            self.screenshots = screenshots
+            self.userNotes = userNotes
         }
 
         init(from decoder: Decoder) throws {
@@ -126,6 +140,8 @@ extension MapleRecording {
             transcript = try container.decode([TranscriptSegment].self, forKey: .transcript)
             promptResults = try container.decode([PromptResult].self, forKey: .promptResults)
             tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+            screenshots = try container.decodeIfPresent([TimelineScreenshot].self, forKey: .screenshots) ?? []
+            userNotes = try container.decodeIfPresent(String.self, forKey: .userNotes) ?? ""
         }
     }
 
@@ -140,7 +156,9 @@ extension MapleRecording {
             speakers: speakers,
             transcript: transcript,
             promptResults: promptResults,
-            tags: tags
+            tags: tags,
+            screenshots: screenshots,
+            userNotes: userNotes
         )
     }
 
@@ -157,5 +175,7 @@ extension MapleRecording {
         self.transcript = metadata.transcript
         self.promptResults = metadata.promptResults
         self.tags = metadata.tags
+        self.screenshots = metadata.screenshots
+        self.userNotes = metadata.userNotes
     }
 }

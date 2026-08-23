@@ -152,6 +152,13 @@ final class RecordingStore {
             }
         }
 
+        for screenshot in recording.screenshots {
+            let screenshotURL = recordingsURL.appendingPathComponent(screenshot.fileName)
+            if fileManager.fileExists(atPath: screenshotURL.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: screenshotURL)
+            }
+        }
+
         recordings.removeAll { $0.id == recording.id }
         mutationGeneration += 1
     }

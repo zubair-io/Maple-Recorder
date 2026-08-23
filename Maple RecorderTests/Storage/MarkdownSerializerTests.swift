@@ -150,6 +150,31 @@ struct MarkdownSerializerTests {
         #expect(!markdown.contains("## Meeting Overview"))
     }
 
+    @Test func notesAndTimelineScreenshotsRoundTrip() throws {
+        let recording = MapleRecording(
+            title: "Presentation",
+            audioFiles: ["presentation.m4a"],
+            duration: 90,
+            createdAt: fixedDate,
+            modifiedAt: fixedDate,
+            screenshots: [
+                TimelineScreenshot(fileName: "frame-1.jpg", timestamp: 5),
+                TimelineScreenshot(fileName: "frame-2.jpg", timestamp: 42),
+            ],
+            userNotes: "Follow up with the design team."
+        )
+
+        let markdown = MarkdownSerializer.serialize(recording)
+        let result = MarkdownSerializer.deserialize(markdown)
+
+        #expect(markdown.contains("## Notes"))
+        #expect(markdown.contains("## Timeline Screenshots"))
+        #expect(markdown.contains("[0:42](frame-2.jpg)"))
+        #expect(result?.userNotes == "Follow up with the design team.")
+        #expect(result?.screenshots.map(\.fileName) == ["frame-1.jpg", "frame-2.jpg"])
+        #expect(result?.screenshots.map(\.timestamp) == [5, 42])
+    }
+
     @Test func specialCharactersInTitle() throws {
         let recording = MapleRecording(
             title: "Meeting — Q4 \"Goals\" & Plans",

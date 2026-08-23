@@ -113,6 +113,25 @@ struct RecordingStoreTests {
         #expect(!FileManager.default.fileExists(atPath: audioURL.path(percentEncoded: false)))
     }
 
+    @Test func deleteRemovesTimelineScreenshots() throws {
+        let dir = try makeTempDirectory()
+        defer { cleanup(dir) }
+
+        let screenshot = TimelineScreenshot(fileName: "frame.jpg", timestamp: 5)
+        let recording = MapleRecording(title: "With Timeline", screenshots: [screenshot])
+        let screenshotURL = dir.appendingPathComponent(screenshot.fileName)
+        FileManager.default.createFile(
+            atPath: screenshotURL.path(percentEncoded: false),
+            contents: Data([0xFF, 0xD8, 0xFF])
+        )
+        let store = RecordingStore(directory: dir)
+        try store.save(recording)
+
+        try store.delete(recording)
+
+        #expect(!FileManager.default.fileExists(atPath: screenshotURL.path(percentEncoded: false)))
+    }
+
     @Test func emptyDirectoryReturnsEmpty() throws {
         let dir = try makeTempDirectory()
         defer { cleanup(dir) }
