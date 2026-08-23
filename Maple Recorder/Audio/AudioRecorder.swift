@@ -5,6 +5,10 @@ import Observation
 struct RecordingResult {
     var micURLs: [URL]
     var systemURLs: [URL]
+    #if os(macOS)
+    var screenshots: [CapturedTimelineScreenshot]
+    var userNotes: String
+    #endif
 }
 
 @Observable
@@ -16,7 +20,9 @@ final class AudioRecorder {
 
     #if os(macOS)
     var includeSystemAudio = false
+    var settingsManager: SettingsManager?
     private var systemCapture = SystemAudioCapture()
+    private var sessionAccessories = RecordingSessionAccessories()
     #endif
 
     /// Set to a non-empty string when a recoverable error occurs (e.g. stream disconnect).
@@ -114,6 +120,15 @@ final class AudioRecorder {
         self.chunkStartTime = Date()
         self.recordingWarning = nil
 
+        #if os(macOS)
+        sessionAccessories.onWarning = { [weak self] warning in
+            self?.recordingWarning = warning
+        }
+        if let recordingId {
+            sessionAccessories.start(recordingID: recordingId, settingsManager: settingsManager)
+        }
+        #endif
+
         // Observe audio engine configuration changes (hardware route changes, Bluetooth connects, etc.)
         observeEngineInterruptions(engine)
 
@@ -155,7 +170,13 @@ final class AudioRecorder {
         Task {
             await systemCapture.stopCapture()
         }
-        let result = RecordingResult(micURLs: chunkURLs, systemURLs: systemChunkURLs)
+        let accessories = sessionAccessories.stop()
+        let result = RecordingResult(
+            micURLs: chunkURLs,
+            systemURLs: systemChunkURLs,
+            screenshots: accessories.screenshots,
+            userNotes: accessories.userNotes
+        )
         #else
         let result = RecordingResult(micURLs: chunkURLs, systemURLs: [])
         #endif

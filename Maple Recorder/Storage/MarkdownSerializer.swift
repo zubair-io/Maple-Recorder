@@ -25,6 +25,18 @@ enum MarkdownSerializer {
             output += recording.tags.map { "#\($0)" }.joined(separator: " ") + "\n"
         }
 
+        if !recording.userNotes.isEmpty {
+            output += "\n## Notes\n\n"
+            output += recording.userNotes + "\n"
+        }
+
+        if !recording.screenshots.isEmpty {
+            output += "\n## Timeline Screenshots\n\n"
+            for screenshot in recording.screenshots.sorted(by: { $0.timestamp < $1.timestamp }) {
+                output += "- [\(formattedTimestamp(screenshot.timestamp))](\(screenshot.fileName))\n"
+            }
+        }
+
         // JSON metadata block (source of truth)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

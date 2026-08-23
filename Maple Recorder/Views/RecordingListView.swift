@@ -356,6 +356,7 @@ struct RecordingListView: View {
 
     private func startRecording() {
         #if os(macOS)
+        recorder.settingsManager = settingsManager
         miniRecordingController?.recorder = recorder
         miniRecordingController?.onStopRequested = { [self] in
             stopRecording()
@@ -423,7 +424,7 @@ struct RecordingListView: View {
             systemAudioFileNames.append(fileName)
         }
 
-        let recording = MapleRecording(
+        var recording = MapleRecording(
             id: recorder.recordingId ?? UUID(),
             title: title,
             audioFiles: audioFileNames,
@@ -432,6 +433,11 @@ struct RecordingListView: View {
             createdAt: now,
             modifiedAt: now
         )
+
+        #if os(macOS)
+        recording.screenshots = persistScreenshots(result.screenshots)
+        recording.userNotes = result.userNotes
+        #endif
 
         do {
             try store.save(recording)
@@ -509,6 +515,23 @@ struct RecordingListView: View {
         let seconds = Int(time) % 60
         return String(format: "%02d:%02d", minutes, seconds)
     }
+
+    #if os(macOS)
+    private func persistScreenshots(_ captures: [CapturedTimelineScreenshot]) -> [TimelineScreenshot] {
+        captures.compactMap { capture in
+            let fileName = capture.sourceURL.lastPathComponent
+            let destination = StorageLocation.recordingsURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.copyItem(at: capture.sourceURL, to: destination)
+                try? FileManager.default.removeItem(at: capture.sourceURL)
+                return TimelineScreenshot(fileName: fileName, timestamp: capture.timestamp)
+            } catch {
+                print("Failed to save timeline screenshot: \(error.localizedDescription)")
+                return nil
+            }
+        }
+    }
+    #endif
 }
 
 // MARK: - Row Link (whole-cell tappable + hover highlight)

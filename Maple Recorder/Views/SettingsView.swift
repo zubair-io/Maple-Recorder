@@ -18,6 +18,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     summarizerSection
+                    assistSection
                     apiKeysSection
                     recordingSection
                     calendarSection
@@ -61,6 +62,79 @@ struct SettingsView: View {
             } message: {
                 Text("Enter a name and system prompt for your custom prompt.")
             }
+        }
+    }
+
+    // MARK: - Live Assist
+
+    private var assistSection: some View {
+        SettingsCard {
+            SettingsSectionHeader(icon: "sparkles.rectangle.stack", title: "Live Assist")
+
+            Text("Assist starts on while recording and drafts a new Q&A response when the five-second sampler finds a meaningful screen change. This prompt controls its response style.")
+                .font(.caption)
+                .foregroundStyle(MapleTheme.textSecondary)
+
+            TextEditor(text: $settingsManager.assistPrompt)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 110)
+                .padding(8)
+                .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(MapleTheme.border.opacity(0.25), lineWidth: 1)
+                )
+
+            if settingsManager.preferredProvider == .claude || settingsManager.preferredProvider == .openai {
+                Toggle(isOn: $settingsManager.shareAssistScreenshotsWithCloudAI) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Share current screenshot with cloud AI")
+                        Text("While Assist is on, sends only meaningful changes from the focused presentation window.")
+                            .font(.caption2)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
+            HStack(alignment: .top) {
+                Label(assistPrivacyMessage, systemImage: assistPrivacyIcon)
+                .font(.caption2)
+                .foregroundStyle(MapleTheme.textSecondary)
+
+                Spacer()
+
+                Button("Reset") {
+                    settingsManager.assistPrompt = AppSettings.defaultAssistPrompt
+                }
+                .font(.caption)
+                .buttonStyle(.plain)
+                .foregroundStyle(MapleTheme.primary)
+            }
+        }
+    }
+
+    private var assistPrivacyIcon: String {
+        switch settingsManager.preferredProvider {
+        case .appleFoundationModels: "lock.shield"
+        case .claude, .openai: "cloud"
+        case .none: "xmark.circle"
+        }
+    }
+
+    private var assistPrivacyMessage: String {
+        switch settingsManager.preferredProvider {
+        case .appleFoundationModels:
+            "Screen text is read locally; screen text and notes stay on this device."
+        case .claude, .openai:
+            if settingsManager.shareAssistScreenshotsWithCloudAI {
+                "While recording, changed screenshots, extracted text, and notes are sent to \(settingsManager.preferredProvider.displayName) while Assist is on."
+            } else {
+                "While recording, extracted screen text and notes are sent to \(settingsManager.preferredProvider.displayName) while Assist is on; screenshots stay local."
+            }
+        case .none:
+            "Choose an AI provider above to enable Assist."
         }
     }
 
@@ -152,6 +226,12 @@ struct SettingsView: View {
             Text("Audio is captured at 48 kHz / 128 kbps AAC.")
                 .font(.caption)
                 .foregroundStyle(MapleTheme.textSecondary)
+
+            #if os(macOS)
+            Text("Maple leaves the Dock while recording. Share a specific presentation window to keep the separate notes panel private; full-display sharing can include any visible window.")
+                .font(.caption2)
+                .foregroundStyle(MapleTheme.textSecondary)
+            #endif
         }
     }
 

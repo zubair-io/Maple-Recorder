@@ -48,6 +48,22 @@ final class SettingsManager {
         }
     }
 
+    var assistPrompt: String {
+        get { settings.assistPrompt }
+        set {
+            settings.assistPrompt = newValue
+            try? save()
+        }
+    }
+
+    var shareAssistScreenshotsWithCloudAI: Bool {
+        get { settings.shareAssistScreenshotsWithCloudAI }
+        set {
+            settings.shareAssistScreenshotsWithCloudAI = newValue
+            try? save()
+        }
+    }
+
     // MARK: - Calendar Settings
 
     var calendarEnabled: Bool {

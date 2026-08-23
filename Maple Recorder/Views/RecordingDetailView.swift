@@ -19,6 +19,8 @@ struct RecordingDetailView: View {
     @State private var isMeetingOverviewExpanded = true
     @State private var isDetailsExpanded = true
     @State private var isTagsExpanded = true
+    @State private var isNotesExpanded = true
+    @State private var isTimelineExpanded = true
     @State private var isTranscriptExpanded = false
     @State private var isAIInsightsExpanded = true
 
@@ -28,6 +30,8 @@ struct RecordingDetailView: View {
     @State private var editableSummary = ""
     @State private var isEditingTags = false
     @State private var editableTagsText = ""
+    @State private var isEditingNotes = false
+    @State private var editableNotes = ""
     @State private var didCopyTranscript = false
     #endif
 
@@ -52,6 +56,8 @@ struct RecordingDetailView: View {
                         meetingOverviewSection(recording: recording)
                         detailsSection(recording: recording)
                         tagsSection(recording: recording)
+                        notesSection(recording: recording)
+                        timelineSection(recording: recording)
                         transcriptSection(recording: recording)
                         #if !os(watchOS)
                         aiInsightsSection(recording: recording)
@@ -197,6 +203,127 @@ struct RecordingDetailView: View {
                 description: Text("This recording may have been deleted.")
             )
         }
+    }
+
+    // MARK: - User Notes Section
+
+    @ViewBuilder
+    private func notesSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        if !recording.userNotes.isEmpty {
+            watchSection(title: "Notes") {
+                Text(recording.userNotes)
+                    .font(.body)
+                    .foregroundStyle(MapleTheme.textPrimary)
+            }
+        }
+        #else
+        if !recording.userNotes.isEmpty || isEditingNotes {
+            DisclosureGroup(isExpanded: $isNotesExpanded) {
+                if isEditingNotes {
+                    VStack(alignment: .trailing, spacing: 8) {
+                        TextEditor(text: $editableNotes)
+                            .font(.body)
+                            .foregroundStyle(MapleTheme.textPrimary)
+                            .frame(minHeight: 100)
+                            .scrollContentBackground(.hidden)
+
+                        HStack(spacing: 12) {
+                            Button("Cancel") { isEditingNotes = false }
+                                .foregroundStyle(MapleTheme.textSecondary)
+                            Button("Save") { commitNotesEdit(recording: recording) }
+                                .foregroundStyle(MapleTheme.primary)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                } else {
+                    Text(recording.userNotes)
+                        .font(.body)
+                        .foregroundStyle(MapleTheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Edit Notes") {
+                                editableNotes = recording.userNotes
+                                isEditingNotes = true
+                            }
+                        }
+                }
+            } label: {
+                Text("Notes")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(MapleTheme.primary)
+            }
+            .disclosureGroupStyle(MapleSectionStyle())
+        }
+        #endif
+    }
+
+    // MARK: - Visual Timeline Section
+
+    @ViewBuilder
+    private func timelineSection(recording: MapleRecording) -> some View {
+        #if os(watchOS)
+        if !recording.screenshots.isEmpty {
+            watchSection(title: "Timeline") {
+                Text("\(recording.screenshots.count) visual moments — view on iPhone or Mac.")
+                    .font(.body)
+                    .foregroundStyle(MapleTheme.textSecondary)
+            }
+        }
+        #else
+        if !recording.screenshots.isEmpty {
+            DisclosureGroup(isExpanded: $isTimelineExpanded) {
+                LazyVStack(spacing: 12) {
+                    ForEach(recording.screenshots.sorted(by: { $0.timestamp < $1.timestamp })) { screenshot in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(spacing: 0) {
+                                Circle()
+                                    .fill(MapleTheme.primary)
+                                    .frame(width: 9, height: 9)
+                                Rectangle()
+                                    .fill(MapleTheme.border.opacity(0.45))
+                                    .frame(width: 1)
+                            }
+                            .frame(maxHeight: .infinity)
+                            .frame(width: 10)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Button {
+                                    seek(to: screenshot.timestamp, in: recording)
+                                } label: {
+                                    Label(
+                                        MarkdownSerializer.formattedTimestamp(screenshot.timestamp),
+                                        systemImage: "play.circle.fill"
+                                    )
+                                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                                    .foregroundStyle(MapleTheme.primary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Play from this moment")
+
+                                RecordingTimelineImage(fileName: screenshot.fileName)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Timeline")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundStyle(MapleTheme.primary)
+                    Text("\(recording.screenshots.count) moments")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+            }
+            .disclosureGroupStyle(MapleSectionStyle())
+        }
+        #endif
     }
 
     // MARK: - Meeting Overview Section
@@ -599,6 +726,27 @@ struct RecordingDetailView: View {
         try? store.update(updated)
         isEditingTags = false
     }
+
+    private func commitNotesEdit(recording: MapleRecording) {
+        var updated = recording
+        updated.userNotes = editableNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.modifiedAt = Date()
+        try? store.update(updated)
+        isEditingNotes = false
+    }
+
+    private func seek(to timestamp: TimeInterval, in recording: MapleRecording) {
+        if audioLoaded {
+            player.seek(to: timestamp)
+            if !player.isPlaying { player.play() }
+            syncEngine.start(player: player, transcript: recording.transcript)
+        } else {
+            Task {
+                await loadAudioOnDemand(recording: recording)
+                player.seek(to: timestamp)
+            }
+        }
+    }
     #endif
 
     // MARK: - Audio
@@ -657,6 +805,66 @@ struct RecordingDetailView: View {
         syncEngine.start(player: player, transcript: recording.transcript)
     }
 }
+
+#if !os(watchOS)
+private struct RecordingTimelineImage: View {
+    let fileName: String
+    @State private var image: PlatformTimelineImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                #if os(macOS)
+                Image(nsImage: image)
+                    .resizable()
+                #else
+                Image(uiImage: image)
+                    .resizable()
+                #endif
+            } else if failed {
+                ContentUnavailableView("Image unavailable", systemImage: "photo")
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .scaledToFit()
+        .frame(maxWidth: 720)
+        .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(MapleTheme.border.opacity(0.3), lineWidth: 1)
+        )
+        .task(id: fileName) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        let url = StorageLocation.recordingsURL.appendingPathComponent(fileName)
+        do {
+            try await ICloudFileDownloader.ensureDownloaded(url: url)
+            let data = try Data(contentsOf: url)
+            #if os(macOS)
+            image = NSImage(data: data)
+            #else
+            image = UIImage(data: data)
+            #endif
+            failed = image == nil
+        } catch {
+            failed = true
+        }
+    }
+}
+
+#if os(macOS)
+private typealias PlatformTimelineImage = NSImage
+#else
+private typealias PlatformTimelineImage = UIImage
+#endif
+#endif
 
 // MARK: - Maple Section Style
 
