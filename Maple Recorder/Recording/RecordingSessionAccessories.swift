@@ -27,7 +27,7 @@ final class RecordingSessionAccessories {
     private let notesController = RecordingNotesController()
     private var isRunning = false
     private var settingsManager: SettingsManager?
-    private var previousAssistTurn: AssistTurnSnapshot?
+    private var assistHistory: [AssistTurnSnapshot] = []
 
     var onWarning: ((String) -> Void)?
 
@@ -36,7 +36,7 @@ final class RecordingSessionAccessories {
         isRunning = true
         let effectiveSettingsManager = settingsManager ?? SettingsManager()
         self.settingsManager = effectiveSettingsManager
-        previousAssistTurn = nil
+        assistHistory = []
 
         // Remember the presentation app before the notes panel becomes key.
         let currentPID = ProcessInfo.processInfo.processIdentifier
@@ -47,12 +47,19 @@ final class RecordingSessionAccessories {
         screenshotCapture.onWarning = { [weak self] warning in
             self?.onWarning?(warning)
         }
-        notesController.show(settingsManager: effectiveSettingsManager) { [weak self] notes, sourceImage in
+        notesController.show(settingsManager: effectiveSettingsManager) { [weak self] notes, sourceFrame in
             guard let self else { throw AssistError.notAvailable }
-            return try await self.generateAssist(notes: notes, sourceImage: sourceImage)
+            return try await self.generateAssist(
+                notes: notes,
+                sourceImage: sourceFrame?.image,
+                recognizedText: sourceFrame?.recognizedText
+            )
         }
-        screenshotCapture.onRelevantFrame = { [weak self] image in
-            self?.notesController.requestAutomaticAssist(image: image)
+        screenshotCapture.onRelevantFrame = { [weak self] image, recognizedText in
+            self?.notesController.requestAutomaticAssist(
+                image: image,
+                recognizedText: recognizedText
+            )
         }
         screenshotCapture.start(recordingID: recordingID, initialTargetPID: externalTargetPID)
     }
@@ -67,12 +74,16 @@ final class RecordingSessionAccessories {
         screenshotCapture.onRelevantFrame = nil
         let notes = notesController.stop()
         settingsManager = nil
-        previousAssistTurn = nil
+        assistHistory = []
         RecordingPresentationManager.shared.endRecording()
         return RecordingAccessoryResult(screenshots: screenshots, userNotes: notes)
     }
 
-    private func generateAssist(notes: String, sourceImage: CGImage?) async throws -> String {
+    private func generateAssist(
+        notes: String,
+        sourceImage: CGImage?,
+        recognizedText: String?
+    ) async throws -> String {
         guard let settingsManager else { throw AssistError.notAvailable }
         let provider = settingsManager.preferredProvider
         guard provider != .none,
@@ -85,6 +96,7 @@ final class RecordingSessionAccessories {
             && settingsManager.shareAssistScreenshotsWithCloudAI
         let screenContext = try await screenshotCapture.assistContext(
             from: sourceImage,
+            recognizedText: recognizedText,
             includeImage: includeCloudImage
         )
         let prompt = settingsManager.assistPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -95,7 +107,7 @@ final class RecordingSessionAccessories {
             currentScreenText: screenContext.recognizedText,
             currentImage: screenContext.image,
             notes: notes,
-            previousTurn: previousAssistTurn,
+            previousTurns: assistHistory,
             characterBudget: contextBudget,
             includeImages: includeCloudImage
         )
@@ -105,10 +117,12 @@ final class RecordingSessionAccessories {
             userMessage: requestContext.userMessage,
             images: requestContext.images
         )
-        previousAssistTurn = AssistTurnSnapshot(
-            recognizedText: screenContext.recognizedText,
-            image: screenContext.image,
-            response: response
+        assistHistory.append(
+            AssistTurnSnapshot(
+                recognizedText: screenContext.recognizedText,
+                image: screenContext.image,
+                response: response
+            )
         )
         return response
     }
@@ -235,13 +249,18 @@ private final class RecordingNotesPanel: NSPanel {
 
 @MainActor
 private final class RecordingNotesController {
-    typealias AssistHandler = @MainActor (String, CGImage?) async throws -> String
+    struct AssistSourceFrame {
+        let image: CGImage
+        let recognizedText: String?
+    }
+
+    typealias AssistHandler = @MainActor (String, AssistSourceFrame?) async throws -> String
 
     private var panel: RecordingNotesPanel?
     private var model: RecordingNotesModel?
     private var onAssist: AssistHandler?
     private var assistTask: Task<Void, Never>?
-    private var pendingAutomaticImage: CGImage?
+    private var pendingAutomaticFrame: AssistSourceFrame?
     private var assistGeneration = 0
 
     func show(
@@ -299,22 +318,23 @@ private final class RecordingNotesController {
         panel.orderFrontRegardless()
     }
 
-    func requestAutomaticAssist(image: CGImage) {
+    func requestAutomaticAssist(image: CGImage, recognizedText: String?) {
         guard model?.isAutoAssistEnabled == true else { return }
+        let sourceFrame = AssistSourceFrame(image: image, recognizedText: recognizedText)
         guard assistTask == nil else {
             // The newest relevant frame is the most useful follow-up context.
-            pendingAutomaticImage = image
+            pendingAutomaticFrame = sourceFrame
             return
         }
-        runAssist(sourceImage: image)
+        runAssist(sourceFrame: sourceFrame)
     }
 
     private func requestManualAssist() {
         guard assistTask == nil else { return }
-        runAssist(sourceImage: nil)
+        runAssist(sourceFrame: nil)
     }
 
-    private func runAssist(sourceImage: CGImage?) {
+    private func runAssist(sourceFrame: AssistSourceFrame?) {
         guard let model, let onAssist else { return }
         assistGeneration += 1
         let generation = assistGeneration
@@ -324,7 +344,7 @@ private final class RecordingNotesController {
 
         assistTask = Task { [weak self] in
             do {
-                let response = try await onAssist(notes, sourceImage)
+                let response = try await onAssist(notes, sourceFrame)
                 try Task.checkCancellation()
                 guard let self, self.assistGeneration == generation else { return }
                 self.model?.assistResponse = response
@@ -339,12 +359,12 @@ private final class RecordingNotesController {
             self.model?.isAssisting = false
             self.assistTask = nil
 
-            if let pendingImage = self.pendingAutomaticImage,
+            if let pendingFrame = self.pendingAutomaticFrame,
                self.model?.isAutoAssistEnabled == true {
-                self.pendingAutomaticImage = nil
-                self.runAssist(sourceImage: pendingImage)
+                self.pendingAutomaticFrame = nil
+                self.runAssist(sourceFrame: pendingFrame)
             } else {
-                self.pendingAutomaticImage = nil
+                self.pendingAutomaticFrame = nil
             }
         }
     }
@@ -354,7 +374,7 @@ private final class RecordingNotesController {
         assistGeneration += 1
         assistTask?.cancel()
         assistTask = nil
-        pendingAutomaticImage = nil
+        pendingAutomaticFrame = nil
         onAssist = nil
         panel?.close()
         panel = nil
@@ -364,6 +384,8 @@ private final class RecordingNotesController {
 }
 
 private struct RecordingNotesView: View {
+    private static let sideBySideMinimumWidth: CGFloat = 680
+
     @Bindable var model: RecordingNotesModel
     @Bindable var settingsManager: SettingsManager
     let onManualAssist: @MainActor () -> Void
@@ -403,12 +425,8 @@ private struct RecordingNotesView: View {
                 .help("Analyze the current screen now")
             }
 
-            VSplitView {
-                assistResponseSection
-                    .frame(minHeight: 110, idealHeight: 210)
-
-                notepadSection
-                    .frame(minHeight: 120, idealHeight: 230)
+            GeometryReader { geometry in
+                responsiveNotesLayout(width: geometry.size.width)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -423,6 +441,27 @@ private struct RecordingNotesView: View {
         .padding(16)
         .background(MapleTheme.background)
         .frame(minWidth: 300, minHeight: 300)
+    }
+
+    @ViewBuilder
+    private func responsiveNotesLayout(width: CGFloat) -> some View {
+        if width >= Self.sideBySideMinimumWidth {
+            HSplitView {
+                assistResponseSection
+                    .frame(minWidth: 300, idealWidth: 360)
+
+                notepadSection
+                    .frame(minWidth: 260, idealWidth: 320)
+            }
+        } else {
+            VSplitView {
+                assistResponseSection
+                    .frame(minHeight: 110, idealHeight: 210)
+
+                notepadSection
+                    .frame(minHeight: 120, idealHeight: 230)
+            }
+        }
     }
 
     private var assistResponseSection: some View {
@@ -457,38 +496,38 @@ private struct RecordingNotesView: View {
                 }
             }
 
-            Group {
-                if model.isAssisting {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Reading the changed screen and drafting an answer…")
-                            .font(.caption)
-                            .foregroundStyle(MapleTheme.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else if let error = model.assistError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+            if model.isAssisting {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Reading the changed screen and drafting a new answer…")
                         .font(.caption)
-                        .foregroundStyle(MapleTheme.error)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else if model.assistResponse.isEmpty {
+                        .foregroundStyle(MapleTheme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if let error = model.assistError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(MapleTheme.error)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if model.assistResponse.isEmpty {
+                if !model.isAssisting && model.assistError == nil {
                     ContentUnavailableView(
                         "Waiting for a screen change",
                         systemImage: "sparkles.rectangle.stack",
                         description: Text("Assist will place its suggested response here.")
                     )
                 } else {
-                    ScrollView {
-                        Text(model.assistResponse)
-                            .font(.body)
-                            .foregroundStyle(MapleTheme.textPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                ScrollView {
+                    AssistMarkdownView(markdown: model.assistResponse)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(10)
         .background(MapleTheme.primaryLight.opacity(0.35), in: .rect(cornerRadius: 10))
@@ -510,7 +549,6 @@ private struct RecordingNotesView: View {
                         .strokeBorder(MapleTheme.border.opacity(0.35), lineWidth: 1)
                 )
         }
-        .padding(.top, 8)
     }
 
     private var assistHelp: String {
@@ -528,6 +566,120 @@ private struct RecordingNotesView: View {
     }
 }
 
+private struct AssistMarkdownView: View {
+    let markdown: String
+
+    private var blocks: [AssistMarkdownBlock] {
+        AssistMarkdownParser.parse(markdown)
+    }
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                blockView(block)
+            }
+        }
+        .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: AssistMarkdownBlock) -> some View {
+        switch block {
+        case let .heading(level, text):
+            Text(inlineMarkdown(text))
+                .font(headingFont(level))
+                .foregroundStyle(MapleTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+        case let .paragraph(text):
+            Text(inlineMarkdown(text))
+                .font(.body)
+                .foregroundStyle(MapleTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+        case let .orderedListItem(number, text):
+            listItem(marker: "\(number).", text: text)
+
+        case let .unorderedListItem(text):
+            listItem(marker: "•", text: text)
+
+        case let .blockQuote(text):
+            Text(inlineMarkdown(text))
+                .font(.body)
+                .foregroundStyle(MapleTheme.textSecondary)
+                .padding(.leading, 10)
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(MapleTheme.primary.opacity(0.65))
+                        .frame(width: 3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+        case let .code(language, content):
+            codeBlock(language: language, content: content)
+
+        case .divider:
+            Divider()
+        }
+    }
+
+    private func listItem(marker: String, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Text(marker)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(MapleTheme.textSecondary)
+                .frame(minWidth: 16, alignment: .trailing)
+            Text(inlineMarkdown(text))
+                .font(.body)
+                .foregroundStyle(MapleTheme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func codeBlock(language: String?, content: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let language {
+                Text(language.uppercased())
+                    .font(.caption2.monospaced().weight(.semibold))
+                    .foregroundStyle(MapleTheme.textSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
+
+            ScrollView(.horizontal) {
+                Text(content)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(MapleTheme.textPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(MapleTheme.border.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    private func inlineMarkdown(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title2.weight(.bold)
+        case 2: .title3.weight(.semibold)
+        case 3: .headline
+        default: .subheadline.weight(.semibold)
+        }
+    }
+}
+
 // MARK: - Focused-window screenshots
 
 private struct AssistScreenContext {
@@ -541,7 +693,7 @@ private final class FocusedWindowScreenshotCapture {
     private static let fingerprintSide = 32
 
     var onWarning: ((String) -> Void)?
-    var onRelevantFrame: ((CGImage) -> Void)?
+    var onRelevantFrame: ((CGImage, String?) -> Void)?
 
     private var timer: Timer?
     private var captureTask: Task<Void, Never>?
@@ -551,6 +703,7 @@ private final class FocusedWindowScreenshotCapture {
     private var targetPID: pid_t?
     private var screenshots: [CapturedTimelineScreenshot] = []
     private var lastFingerprint: [UInt8]?
+    private var lastRecognizedText: String?
     private var lastWindowID: CGWindowID?
     private var hasReportedFailure = false
 
@@ -590,6 +743,7 @@ private final class FocusedWindowScreenshotCapture {
         targetPID = nil
         screenshots = []
         lastFingerprint = nil
+        lastRecognizedText = nil
         lastWindowID = nil
         hasReportedFailure = false
         return result
@@ -603,6 +757,7 @@ private final class FocusedWindowScreenshotCapture {
         captureTask = nil
         screenshots = []
         lastFingerprint = nil
+        lastRecognizedText = nil
         lastWindowID = nil
         hasReportedFailure = false
     }
@@ -629,12 +784,22 @@ private final class FocusedWindowScreenshotCapture {
                 let (image, windowID) = try await self.captureImage(for: targetPID)
                 try Task.checkCancellation()
 
+                let recognizedText = try? await Self.recognizedText(in: image)
                 let fingerprint = Self.fingerprint(for: image)
-                guard VisualFrameDiffer.isMeaningfullyDifferent(
+                let windowChanged = self.lastWindowID != windowID
+                let visualChanged = VisualFrameDiffer.isMeaningfullyDifferent(
                     fingerprint,
                     from: self.lastFingerprint,
-                    windowChanged: self.lastWindowID != windowID
-                ) else { return }
+                    windowChanged: windowChanged
+                )
+                let textChanged = recognizedText.map {
+                    ScreenTextDiffer.isMeaningfullyDifferent(
+                        $0,
+                        from: self.lastRecognizedText,
+                        windowChanged: windowChanged
+                    )
+                } ?? false
+                guard visualChanged || textChanged else { return }
 
                 let sequence = self.screenshots.count + 1
                 let fileName = "\(recordingID.uuidString)-screen-\(String(format: "%04d", sequence)).jpg"
@@ -643,9 +808,12 @@ private final class FocusedWindowScreenshotCapture {
                 try Task.checkCancellation()
 
                 self.lastFingerprint = fingerprint
+                if let recognizedText {
+                    self.lastRecognizedText = recognizedText
+                }
                 self.lastWindowID = windowID
                 self.screenshots.append(CapturedTimelineScreenshot(sourceURL: url, timestamp: timestamp))
-                self.onRelevantFrame?(image)
+                self.onRelevantFrame?(image, recognizedText)
             } catch is CancellationError {
                 return
             } catch {
@@ -656,7 +824,11 @@ private final class FocusedWindowScreenshotCapture {
         }
     }
 
-    func assistContext(from sourceImage: CGImage?, includeImage: Bool) async throws -> AssistScreenContext {
+    func assistContext(
+        from sourceImage: CGImage?,
+        recognizedText suppliedText: String?,
+        includeImage: Bool
+    ) async throws -> AssistScreenContext {
         let image: CGImage
         if let sourceImage {
             image = sourceImage
@@ -666,21 +838,12 @@ private final class FocusedWindowScreenshotCapture {
             image = captured.0
         }
 
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-
-        let text = (request.results ?? [])
-            .sorted {
-                if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.015 {
-                    return $0.boundingBox.midY > $1.boundingBox.midY
-                }
-                return $0.boundingBox.minX < $1.boundingBox.minX
-            }
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text: String
+        if let suppliedText {
+            text = suppliedText
+        } else {
+            text = try await Self.recognizedText(in: image)
+        }
 
         guard !text.isEmpty || includeImage else { throw ScreenshotCaptureError.noReadableText }
         let recognizedText = text.isEmpty
@@ -690,6 +853,26 @@ private final class FocusedWindowScreenshotCapture {
             ? LLMImage(data: try Self.jpegData(image), mediaType: "image/jpeg")
             : nil
         return AssistScreenContext(recognizedText: recognizedText, image: llmImage)
+    }
+
+    private nonisolated static func recognizedText(in image: CGImage) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+
+            return (request.results ?? [])
+                .sorted {
+                    if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.015 {
+                        return $0.boundingBox.midY > $1.boundingBox.midY
+                    }
+                    return $0.boundingBox.minX < $1.boundingBox.minX
+                }
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
     }
 
     private func captureImage(for pid: pid_t) async throws -> (CGImage, CGWindowID) {
