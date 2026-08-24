@@ -403,33 +403,14 @@ private struct RecordingNotesView: View {
                 .help("Analyze the current screen now")
             }
 
-            TextEditor(text: $model.text)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(MapleTheme.border.opacity(0.35), lineWidth: 1)
-                )
+            VSplitView {
+                assistResponseSection
+                    .frame(minHeight: 110, idealHeight: 210)
 
-            if model.isAssisting {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Reading the changed screen and drafting an answer…")
-                        .font(.caption)
-                        .foregroundStyle(MapleTheme.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else if let error = model.assistError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(MapleTheme.error)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if !model.assistResponse.isEmpty {
-                assistResponseCard
+                notepadSection
+                    .frame(minHeight: 120, idealHeight: 230)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack {
                 Label("Share a window to keep notes private", systemImage: "rectangle.on.rectangle.slash")
@@ -444,47 +425,92 @@ private struct RecordingNotesView: View {
         .frame(minWidth: 300, minHeight: 300)
     }
 
-    private var assistResponseCard: some View {
+    private var assistResponseSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Suggested answer", systemImage: "quote.bubble.fill")
+                Label("AI Response", systemImage: "quote.bubble.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(MapleTheme.primary)
                 Spacer()
 
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(model.assistResponse, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.plain)
-                .help("Copy answer")
+                if !model.assistResponse.isEmpty {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(model.assistResponse, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy answer")
 
-                Button("Add to notes") {
-                    let heading = "Suggested answer:"
-                    if model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        model.text = "\(heading)\n\(model.assistResponse)"
-                    } else {
-                        model.text += "\n\n\(heading)\n\(model.assistResponse)"
+                    Button("Add to notes") {
+                        let heading = "Suggested answer:"
+                        if model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            model.text = "\(heading)\n\(model.assistResponse)"
+                        } else {
+                            model.text += "\n\n\(heading)\n\(model.assistResponse)"
+                        }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(MapleTheme.primary)
+                }
+            }
+
+            Group {
+                if model.isAssisting {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Reading the changed screen and drafting an answer…")
+                            .font(.caption)
+                            .foregroundStyle(MapleTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else if let error = model.assistError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(MapleTheme.error)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else if model.assistResponse.isEmpty {
+                    ContentUnavailableView(
+                        "Waiting for a screen change",
+                        systemImage: "sparkles.rectangle.stack",
+                        description: Text("Assist will place its suggested response here.")
+                    )
+                } else {
+                    ScrollView {
+                        Text(model.assistResponse)
+                            .font(.body)
+                            .foregroundStyle(MapleTheme.textPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .font(.caption)
-                .buttonStyle(.plain)
-                .foregroundStyle(MapleTheme.primary)
             }
-
-            ScrollView {
-                Text(model.assistResponse)
-                    .font(.body)
-                    .foregroundStyle(MapleTheme.textPrimary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 150)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(10)
         .background(MapleTheme.primaryLight.opacity(0.35), in: .rect(cornerRadius: 10))
+    }
+
+    private var notepadSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Notepad", systemImage: "square.and.pencil")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(MapleTheme.textSecondary)
+
+            TextEditor(text: $model.text)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .background(MapleTheme.surfaceAlt, in: .rect(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(MapleTheme.border.opacity(0.35), lineWidth: 1)
+                )
+        }
+        .padding(.top, 8)
     }
 
     private var assistHelp: String {
