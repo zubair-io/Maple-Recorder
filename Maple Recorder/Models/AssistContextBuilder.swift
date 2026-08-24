@@ -17,48 +17,28 @@ enum AssistContextBuilder {
         currentScreenText: String,
         currentImage: LLMImage?,
         notes: String,
-        previousTurn: AssistTurnSnapshot?,
+        previousTurns: [AssistTurnSnapshot],
         characterBudget: Int,
         includeImages: Bool
     ) -> AssistRequestContext {
-        let hasPreviousTurn = previousTurn != nil
-        let currentScreenBudget = Int(Double(characterBudget) * (hasPreviousTurn ? 0.45 : 0.7))
-        let notesBudget = Int(Double(characterBudget) * (hasPreviousTurn ? 0.25 : 0.3))
-        let previousScreenBudget = Int(Double(characterBudget) * 0.2)
-        let previousResponseBudget = max(
-            0,
-            characterBudget - currentScreenBudget - notesBudget - previousScreenBudget
-        )
+        let hasHistory = !previousTurns.isEmpty
+        let currentScreenBudget = Int(Double(characterBudget) * (hasHistory ? 0.45 : 0.7))
+        let notesBudget = Int(Double(characterBudget) * (hasHistory ? 0.2 : 0.3))
         let visibleScreen = String(currentScreenText.prefix(currentScreenBudget))
         let recentNotes = String(notes.suffix(notesBudget))
+        // Give history any space the current screen and notes did not use. This
+        // normally lets cloud providers receive every prior turn verbatim.
+        let historyBudget = max(0, characterBudget - visibleScreen.count - recentNotes.count)
 
-        let previousContext: String
-        if let previousTurn {
-            previousContext = """
-                Use the previous turn only for continuity; prioritize the current screen and notes.
-
-                Previous visible screen text:
-                ---
-                \(String(previousTurn.recognizedText.prefix(previousScreenBudget)))
-                ---
-
-                Previous suggested response:
-                ---
-                \(String(previousTurn.response.suffix(previousResponseBudget)))
-                ---
-
-                """
-        } else {
-            previousContext = ""
-        }
+        let previousContext = formattedHistory(previousTurns, characterBudget: historyBudget)
 
         var images: [LLMImage] = []
-        if includeImages, let previousImage = previousTurn?.image {
+        if includeImages, let previousImage = previousTurns.last?.image {
             images.append(
                 LLMImage(
                     data: previousImage.data,
                     mediaType: previousImage.mediaType,
-                    label: "Previous screen"
+                    label: "Most recent previous screen"
                 )
             )
         }
@@ -86,6 +66,71 @@ enum AssistContextBuilder {
                 """,
             images: images
         )
+    }
+
+    /// Includes every completed Assist turn. When a provider's context window is
+    /// tight, each turn is compacted evenly rather than dropping older turns, so
+    /// the model retains continuity across the whole recording session.
+    private static func formattedHistory(
+        _ turns: [AssistTurnSnapshot],
+        characterBudget: Int
+    ) -> String {
+        guard !turns.isEmpty else { return "" }
+
+        let header = """
+            Use the complete previous Assist history for continuity. Prioritize the current screen and notes.
+
+            Previous Assist history (oldest to newest):
+
+            """
+        let fullHistory = header + turns.enumerated().map { index, turn in
+            formattedTurn(
+                index: index,
+                total: turns.count,
+                screenText: turn.recognizedText,
+                response: turn.response
+            )
+        }.joined(separator: "\n\n") + "\n\n"
+        guard fullHistory.count > characterBudget else { return fullHistory }
+
+        let turnHeaders = turns.indices.map { index in
+            "Previous turn \(index + 1) of \(turns.count):\nVisible screen OCR:\n---\n\n---\nAI response:\n---\n\n---\n"
+        }
+        let structuralCount = header.count + turnHeaders.reduce(0) { $0 + $1.count }
+        let availableContent = max(0, characterBudget - structuralCount)
+        let perTurnBudget = turns.isEmpty ? 0 : availableContent / turns.count
+        let screenBudget = perTurnBudget / 2
+        let responseBudget = perTurnBudget - screenBudget
+
+        let history = turns.enumerated().map { index, turn in
+            formattedTurn(
+                index: index,
+                total: turns.count,
+                screenText: String(turn.recognizedText.prefix(screenBudget)),
+                response: String(turn.response.prefix(responseBudget))
+            )
+        }.joined(separator: "\n\n")
+
+        return header + history + "\n\n"
+    }
+
+    private static func formattedTurn(
+        index: Int,
+        total: Int,
+        screenText: String,
+        response: String
+    ) -> String {
+        """
+        Previous turn \(index + 1) of \(total):
+        Visible screen OCR:
+        ---
+        \(screenText)
+        ---
+        AI response:
+        ---
+        \(response)
+        ---
+        """
     }
 }
 #endif
